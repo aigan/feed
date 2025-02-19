@@ -1,0 +1,7 @@
+.envrc
+.venv
+.ipynb_checkpoints
+auth
+var
+__pycache__
+data

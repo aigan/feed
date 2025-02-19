@@ -1,0 +1,45 @@
+Google discover uses
+* search history
+* broswer history
+
+# YouTube Data API v3
+* add and remove to playlists
+* search videos by query
+
+# Reddit
+* rss feeds per subreddit
+* authenticated api for api
+
+# Facebook
+* no access to friends posts. Needs browser simulation
+
+# Twitter
+* API limit to 100 reads per month
+
+# Bluesky
+* Open API
+
+# Mastodon
+* Open API
+
+# Flashback
+
+# Gamedev.net
+* https://www.gamedev.net/feed/
+
+# github
+
+# huggingface
+
+# Linkedin
+
+# Email
+
+# Discord
+* may require bots
+
+# DEV
+
+# RSS
+
+# svtplay

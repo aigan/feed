@@ -1,0 +1,4 @@
+#!/bin/bash
+cd /home/jonas/proj/feed
+eval "$(direnv export bash)"
+exec "$@"

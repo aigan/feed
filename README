@@ -1,0 +1,9 @@
+Special lists:
+
+LL = Liked videos
+WL = Watch Later
+HL = History
+
+https://github.com/zxkeyy/CalcYTWatchTime
+
+Get new videos from feed: activities.list method with the home parameter
