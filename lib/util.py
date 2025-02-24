@@ -8,6 +8,13 @@ def to_obj(d):
         return [to_obj(i) for i in d]
     return d
 
+def from_obj(obj):
+    if isinstance(obj, SimpleNamespace):
+        return {k: from_obj(v) for k, v in vars(obj).items()}
+    elif isinstance(obj, list):
+        return [from_obj(item) for item in obj]
+    return obj
+
 def dump_json(data, **kwargs):
     return json.dumps(data, 
                      default=vars,  # Handles SimpleNamespace

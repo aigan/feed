@@ -3,9 +3,10 @@ from youtube import get_youtube_client
 from pprint import pprint
 from datetime import datetime, timezone
 from config import ROOT
-from util import to_obj, dump_json
+from util import to_obj, from_obj, dump_json
 from pathlib import Path
 import json
+from deepdiff import DeepDiff
 
 batch_time = datetime.now(timezone.utc)
 output_dir = ROOT / "data/youtube/playlists/active"
@@ -33,6 +34,23 @@ def retrieve_playlist():
             playlist_ids.append(id)
             output_file = output_dir / f"{id}.json"
         
+            new_data = {
+                'playlist_id': id,
+                'title': item.snippet.title,
+                'etag': item.etag,
+                'channel_id': item.snippet.channelId,
+                'published_at': datetime.fromisoformat(item.snippet.publishedAt).isoformat(),
+                'item_count': item.contentDetails.itemCount,
+                'privacy_status': item.status.privacyStatus,
+                'description': item.snippet.description,
+                'thumbnails': from_obj(item.snippet.thumbnails),
+            }
+
+            new_data_stamps = {
+                'last_updated': batch_time.isoformat(),
+                'items_last_updated': batch_time.isoformat(),
+            }
+
             if output_file.exists():
                 data = json.loads(output_file.read_text())
                 (new_items_etag, video_ids) = get_playlist_items(id, data.get('items_etag'))
@@ -40,40 +58,40 @@ def retrieve_playlist():
                 if data.get('etag') == item.etag and data.get('items_etag') == new_items_etag:
                     continue
                 print(f"Update {id}");
+
+                new_data['items_etag'] = new_items_etag
+                new_data['items'] = video_ids or data['items']
+                pprint(new_data)
+
+                exclude_paths = [
+                    "root['first_seen']",
+                    "root['last_updated']",
+                    "root['items_last_updated']"
+                ]
+                diff = DeepDiff(data, new_data,
+                    ignore_order=False,
+                    exclude_paths=exclude_paths,
+                )
+                if diff:
+                    archive_playlist(data)
             else:
                 print(f"Created {id}");
                 (new_items_etag, video_ids) = get_playlist_items(id)
-                data = {
-                    'first_seen': batch_time.isoformat(),
-                }
+                new_data['items_etag'] = new_items_etag
+                new_data['items'] = video_ids
+                data = {'first_seen': batch_time.isoformat()}
 
-            video_ids = video_ids or data['items']
-            #pprint(item.snippet)
-            
-            new_data = {
-                'playlist_id': id,
-                'title': item.snippet.title,
-                'last_updated': batch_time.isoformat(),
-                'etag': item.etag,
-                'channel_id': item.snippet.channelId,
-                'published_at': datetime.fromisoformat(item.snippet.publishedAt).isoformat(),
-                'item_count': item.contentDetails.itemCount,
-                'privacy_status': item.status.privacyStatus,
-                'description': item.snippet.description,
-                'thumbnails': item.snippet.thumbnails,
-                'items_last_updated': batch_time.isoformat(),
-                'items_etag': new_items_etag,
-                'items': video_ids,
-            }
-
-            data.update(new_data);
-            output_file.write_text(dump_json(data))
+            data.update(new_data)
+            data.update(new_data_stamps)
+            #output_file.write_text(dump_json(data))
             
         request = youtube.playlists().list_next(request, response)
         #request = False
 
     return playlist_ids;
 
+def archive_playlist(data):
+    print("Should archive playlist...");
 
 #def archive_unliked_videos(unliked_ids, batch_time):
 #    archive_base = ROOT / "data/youtube/likes/archive"
