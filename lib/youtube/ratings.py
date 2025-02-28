@@ -9,39 +9,52 @@ from util import to_obj, from_obj, dump_json
 class Rating:
     def __init__(self, rating_type: str, batch_time: datetime):
         self.batch_time = batch_time
-        self.output_dir = ROOT / "data/youtube/likes/active"
-        self.log_file = ROOT / "data/youtube/likes/likes.log"
+        self.output_dir = ROOT / f"data/youtube/{rating_type}s/active"
+        self.log_file = ROOT / f"data/youtube/{rating_type}s/{rating_type}s.log"
         self.rating_type = rating_type
 
-    def update_likes(self):
+    def update(self):
         video_ids = self.retrieve_list()
+        #print("Video ids");
+        #pprint(video_ids)
 
-        oldest_like_id = video_ids[-1];
-        oldest_data_file =  self.output_dir / f"{oldest_like_id}.json"
+        oldest_rating_id = video_ids[-1];
+        oldest_data_file =  self.output_dir / f"{oldest_rating_id}.json"
         oldest_data = json.loads(oldest_data_file.read_text())
         oldest_timestamp = oldest_data['first_seen']
+        #print(f"oldest rating id: {oldest_rating_id}")
+        #print(f"oldest timestamp: {oldest_timestamp}")
 
-        log_tail = self.find_log_tail(oldest_timestamp)
+        log_tail = self.find_log_tail(oldest_timestamp, len(video_ids))
         log_ids = [line.split()[1] for line in log_tail]
+        #print("Log ids found")
+        #pprint(log_ids)
 
-        unlikes = set(log_ids) - set(video_ids)
-        new_unlikes = {
-            video_id for video_id in unlikes
+
+        undoes = set(log_ids) - set(video_ids)
+        new_undoes = {
+            video_id for video_id in undoes
             if (self.output_dir / f"{video_id}.json").exists()
         }
 
-        self.archive_unliked_videos(new_unlikes, self.batch_time);
-    
+        #print("undoes")
+        #pprint(new_undoes)
+        self.archive_undone_ratings(new_undoes)
+
+        with self.log_file.open('a') as f:
+            for video_id in reversed(video_ids):
+                f.write(f"{self.batch_time.isoformat()} {video_id}\n")
+
 
     def retrieve_list(self):
         youtube = get_youtube_client()
         request = youtube.videos().list(
             part="id",
-            myRating="like",
-            maxResults=50
+            myRating=self.rating_type,
+            maxResults=10
         )
         video_ids = []
-    
+
         while request:
             response = request.execute()
             found_existing = False
@@ -58,14 +71,10 @@ class Rating:
 
                 data = {
                     'first_seen': self.batch_time.isoformat(),
-                    'video': form_obj(item), 
+                    'video': from_obj(item),
                 }
 
                 output_file.write_text(dump_json(data))
-
-                with self.log_file.open('a') as f:
-                    f.write(f"{self.batch_time.isoformat()} {id}\n")
-
                 print(f"Wrote {id}");
 
             if found_existing:
@@ -78,20 +87,25 @@ class Rating:
         return video_ids;
 
 
-    def find_log_tail(self, oldest_timestamp):
+    def find_log_tail(self, oldest_timestamp, offset):
+        if not self.log_file.exists():
+            return []
         lines = self.log_file.read_text().splitlines()
-        for i, line in enumerate(reversed(lines)):
+        for i, line in enumerate(list(reversed(lines))[offset:], start=offset):
             timestamp = line.split()[0]
+            #print(f"Compare {timestamp} <= {oldest_timestamp} from line {line}")
             if timestamp <= oldest_timestamp:
                 return lines[-i:]
         return lines  # If no older timestamp found, return all lines
 
 
-    def archive_unliked_videos(self, unliked_ids, batch_time):
-        archive_base = ROOT / "data/youtube/likes/archive"
+    def archive_undone_ratings(self, unrated_ids):
+        archive_base = ROOT / f"data/youtube/{self.rating_type}s/archive"
         year = self.batch_time.year
+        year_dir = archive_base / str(year)
+        year_dir.mkdir(parents=True, exist_ok=True)
 
-        for video_id in unliked_ids:
+        for video_id in unrated_ids:
             src_file = self.output_dir / f"{video_id}.json"
             if not src_file.exists():
                 print(f"Warning: No active file for {video_id}")
@@ -101,9 +115,7 @@ class Rating:
             data = json.loads(src_file.read_text())
             data['unliked_at'] = self.batch_time.isoformat()
 
-            # Ensure archive directory exists
-            year_dir = archive_base / str(year)
-            year_dir.mkdir(parents=True, exist_ok=True)
+            #print(f"Would archived {video_id}")
 
             # Move to archive
             dest_file = year_dir / f"{video_id}.json"
@@ -111,12 +123,3 @@ class Rating:
             src_file.unlink()
 
             print(f"Archived {video_id}")
-
-
-
-##for line in reversed(list(log_file.open())):
-
-#print("Imported ", batch_time);
-#print("Save to", output_dir);
-#print(f"Oldest like at {oldest_timestamp}");
-#print("Done")
