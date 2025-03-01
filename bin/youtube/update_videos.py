@@ -1,10 +1,21 @@
 #!/bin/env python
-from youtube import Subscription
+from youtube import Subscription, Channel
 from pprint import pprint
+#from context import Context
 
-data = Subscription.get_all()
-subscr = next(data)
-pprint(subscr)
+channel_id = "UCKW0bV5ltbfDuSw04N_vkyQ";
+channel = Channel.get(channel_id)
 
-channel = subscr.channel
-pprint(channel)
+for subscr in Subscription.get_all():
+    channel = subscr.channel
+    print(channel.title)
+
+#subscr = next(data)
+#pprint(subscr)
+
+#channel = subscr.channel
+#pprint(channel)
+
+#context = Context.get()
+#pprint(context.batch_time)
+#Channel.update(channel.channel_id)

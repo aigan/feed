@@ -58,7 +58,7 @@ def retrieve_playlist():
                 # etag depends on parts requested
                 if data.get('etag') == item.etag and data.get('items_etag') == new_items_etag:
                     continue
-                print(f"Update {id}");
+                print(f"Update {id}")
 
                 new_data['items_etag'] = new_items_etag
                 new_data['items'] = video_ids or data['items']
@@ -69,7 +69,8 @@ def retrieve_playlist():
                     "root['last_updated']",
                     "root['items_last_updated']"
                 ]
-                diff = DeepDiff(data, new_data,
+                diff = DeepDiff(
+                    data, new_data,
                     ignore_order=False,
                     exclude_paths=exclude_paths,
                 )
