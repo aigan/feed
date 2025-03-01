@@ -31,9 +31,9 @@ class Channel:
     @classmethod
     def get(cls, channel_id) -> Channel:
         output_file = output_dir / f"{channel_id}.json"
-        print(f"Looking for file {output_file}");
+        #print(f"Looking for file {output_file}");
         if output_file.exists():
-            print("data exist")
+            #print("data exist")
             data = json.loads(output_file.read_text())
         else:
             data = cls.update(channel_id)
@@ -67,7 +67,7 @@ class Channel:
         #sections = sections_response['items']
         #pprint(sections)
 
-        print(f"Update {id}")
+        #print(f"Update {id}")
         new_data = {
             'channel_id': item.id,
             'title': item.snippet.title,
@@ -106,7 +106,7 @@ class Channel:
             else:
                 print("No change")
         else:
-            print(f"Created {id}");
+            #print(f"Created {id}");
             data = {'first_seen': batch_time.isoformat()}
 
         data.update(new_data)
