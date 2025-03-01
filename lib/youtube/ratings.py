@@ -31,15 +31,15 @@ class Rating:
         #pprint(log_ids)
 
 
-        undoes = set(log_ids) - set(video_ids)
-        new_undoes = {
-            video_id for video_id in undoes
+        unrated = set(log_ids) - set(video_ids)
+        new_unrated = {
+            video_id for video_id in unrated
             if (self.output_dir / f"{video_id}.json").exists()
         }
 
-        #print("undoes")
-        #pprint(new_undoes)
-        self.archive_undone_ratings(new_undoes)
+        #print("unrated")
+        #pprint(new_unrated)
+        self.archive_undone_ratings(new_unrated)
 
         with self.log_file.open('a') as f:
             for video_id in reversed(video_ids):
@@ -113,7 +113,7 @@ class Rating:
 
             # Read and update data
             data = json.loads(src_file.read_text())
-            data['unliked_at'] = self.batch_time.isoformat()
+            data['unrated_at'] = self.batch_time.isoformat()
 
             #print(f"Would archived {video_id}")
 
