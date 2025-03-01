@@ -3,4 +3,8 @@ from youtube import Subscription
 from pprint import pprint
 
 data = Subscription.get_all()
-pprint(data)
+subscr = next(data)
+pprint(subscr)
+
+channel = subscr.channel
+pprint(channel)
