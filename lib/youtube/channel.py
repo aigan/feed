@@ -8,9 +8,6 @@ import json
 from util import to_obj, from_obj, dump_json
 from context import Context
 
-output_dir = ROOT / "data/youtube/channels/active"
-archive_dir = ROOT / "data/youtube/channels/archive"
-
 @dataclass
 class Channel:
     """Represents a YouTube channe"""
@@ -30,7 +27,7 @@ class Channel:
 
     @classmethod
     def get(cls, channel_id) -> Channel:
-        output_file = output_dir / f"{channel_id}.json"
+        output_file = cls.get_active_dir(channel_id) / "channel.json"
         #print(f"Looking for file {output_file}");
         if output_file.exists():
             #print("data exist")
@@ -49,7 +46,7 @@ class Channel:
         from youtube import get_youtube_client
         from deepdiff import DeepDiff
 
-        output_file = output_dir / f"{id}.json"
+        output_file = cls.get_active_dir(id) / "channel.json"
         youtube = get_youtube_client()
         batch_time = Context.get().batch_time
 
@@ -111,19 +108,30 @@ class Channel:
 
         data.update(new_data)
         data.update(new_data_stamps)
-        output_file.write_text(dump_json(data))
-
+        dump_json(output_file, data)
         return data
 
     @classmethod
     def archive(cls, data):
+        id = data['channel_id']
+        archive_file = cls.get_archive_dir(id) / "channel.json"
+        if archive_file.exists():
+            return
+        dump_json(archive_file, data)
+
+    @classmethod
+    def get_active_dir(cls, channel_id) -> Path:
+        data_dir = ROOT / "data/youtube/channels/active"
+        return data_dir / channel_id
+
+    @classmethod
+    def get_archive_dir(cls, channel_id) -> Path:
         batch_time = Context.get().batch_time
         year = batch_time.year
         week_number = batch_time.isocalendar()[1]
-        slot_dir = archive_dir / str(year) / f"week-{week_number:02}"
-        slot_dir.mkdir(parents=True, exist_ok=True)
-        id = data['channel_id']
-        archive_file = slot_dir / f"{id}.json"
-        if archive_file.exists():
-            return
-        archive_file.write_text(dump_json(data))
+        archive_dir = ROOT / "data/youtube/channels/archive"
+        return archive_dir / str(year) / f"week-{week_number:02}" / channel_id
+
+
+
+

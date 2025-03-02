@@ -39,8 +39,11 @@ def from_obj(obj):
         return [from_obj(item) for item in obj]
     return obj
 
-def dump_json(data, **kwargs):
-    return json.dumps(data, 
-                     default=vars,  # Handles SimpleNamespace
-                     indent=2,      # Default pretty printing
-                     **kwargs)      # Allow overriding defaults
+def dump_json(file, data, **kwargs):
+    file.parent.mkdir(parents=True, exist_ok=True)
+    return file.write_text(json.dumps(
+        data,
+        default=vars,  # Handles SimpleNamespace
+        indent=2,      # Default pretty printing
+        **kwargs,
+    ))

@@ -85,7 +85,7 @@ def retrieve_playlist():
 
             data.update(new_data)
             data.update(new_data_stamps)
-            output_file.write_text(dump_json(data))
+            dump_json(output_file, data)
             
         request = youtube.playlists().list_next(request, response)
         #request = False
@@ -96,15 +96,13 @@ def archive_playlist(data):
     year = batch_time.year
     week_number = batch_time.isocalendar()[1]
     slot_dir = archive_dir / str(year) / f"week-{week_number:02}"
-    slot_dir.mkdir(parents=True, exist_ok=True)
     id = data['playlist_id']
     archive_file = slot_dir / f"{id}.json"
     if archive_file.exists():
         old_data = json.loads(archive_file.read_text())
         data['items'] = merge_ordered(old_data['items'], data['items'])
         data.pop('items_etag')
-
-    archive_file.write_text(dump_json(data))
+    dump_json(archive_file,data)
 
 def archive_removed_playlist(id):
     output_file = output_dir / f"{id}.json"

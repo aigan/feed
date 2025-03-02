@@ -75,7 +75,7 @@ class Subscription:
             data = new_data
             data['first_seen'] = batch_time.isoformat(),
 
-        output_file.write_text(dump_json(data))
+        dump_json(output_file, data)
         print(f"Wrote {id}");
         return data
 
@@ -116,20 +116,12 @@ class Subscription:
             print(f"Warning: No active file for {channel_id}")
             return
 
-        # Read and update data
         data = json.loads(src_file.read_text())
         data['unsubscribed_at'] = batch_time.isoformat()
 
-        # Ensure archive directory exists
         year_dir = archive_dir / str(year)
-        year_dir.mkdir(parents=True, exist_ok=True)
-
-        #print(f"Would archive {channel_id}")
-        #return
-
-        # Move to archive
         dest_file = year_dir / f"{channel_id}.json"
-        dest_file.write_text(dump_json(data))
+        dump_json(dest_file, data)
         src_file.unlink()
 
         print(f"Archived {channel_id}")

@@ -74,7 +74,7 @@ class Rating:
                     'video': from_obj(item),
                 }
 
-                output_file.write_text(dump_json(data))
+                dump_json(output_file, data)
                 print(f"Wrote {id}");
 
             if found_existing:
@@ -103,7 +103,6 @@ class Rating:
         archive_base = ROOT / f"data/youtube/{self.rating_type}s/archive"
         year = self.batch_time.year
         year_dir = archive_base / str(year)
-        year_dir.mkdir(parents=True, exist_ok=True)
 
         for video_id in unrated_ids:
             src_file = self.output_dir / f"{video_id}.json"
@@ -119,7 +118,7 @@ class Rating:
 
             # Move to archive
             dest_file = year_dir / f"{video_id}.json"
-            dest_file.write_text(dump_json(data))
+            dump_json(dest_file, data)
             src_file.unlink()
 
             print(f"Archived {video_id}")

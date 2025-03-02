@@ -13,8 +13,8 @@ from itertools import islice
 #    print(channel.title)
 
 for subscr in islice(Subscription.get_hot(), 1):
-    #channel = subscr.channel
-    print(subscr.title)
+    channel = subscr.channel
+    print(channel.title)
 
 print("done")
 
