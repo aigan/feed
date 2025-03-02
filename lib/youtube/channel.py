@@ -10,7 +10,7 @@ from context import Context
 
 @dataclass
 class Channel:
-    """Represents a YouTube channe"""
+    """Represents a YouTube channel"""
     channel_id: str
     custom_url: str
     title: str
@@ -19,11 +19,16 @@ class Channel:
     first_seen: datetime
     last_updated: datetime
     published_at: datetime
-    playlists: dict
+    playlists_data: dict
     statistics: dict
     status: dict
     thumbnails: dict
     topic_details: dict
+
+    @property
+    def playlists(self) -> List[Playlist]:
+        from youtube import Playlist
+        return Playlist.for_channel(self.channel_id)
 
     @classmethod
     def get(cls, channel_id) -> Channel:
@@ -69,7 +74,7 @@ class Channel:
             'channel_id': item.id,
             'title': item.snippet.title,
             'banner_external_url': item.brandingSettings.image.bannerExternalUrl,
-            'playlists': from_obj(item.contentDetails.relatedPlaylists),
+            'playlists_data': from_obj(item.contentDetails.relatedPlaylists),
             'custom_url': item.snippet.customUrl,
             'description': item.snippet.description,
             'published_at': datetime.fromisoformat(item.snippet.publishedAt).isoformat(),

@@ -1,16 +1,17 @@
 import os
-import google_auth_oauthlib.flow
-import googleapiclient.discovery
-import googleapiclient.errors
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google.auth.exceptions import RefreshError
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"]
 ROOT = os.environ["PROJECT_ROOT"]
 TOKEN_FILE = ROOT + "/var/token.json"
 def get_youtube_client():
     """Builds an authenticated YouTube API client."""
+    import google_auth_oauthlib.flow
+    import googleapiclient.discovery
+    import googleapiclient.errors
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google.auth.exceptions import RefreshError
+
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
     api_service_name = "youtube"
