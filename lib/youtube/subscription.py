@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 from context import Context
 from util import to_obj, from_obj, dump_json
+from pprint import pprint
 
 data_dir = ROOT / "data/youtube/subscriptions/active"
 archive_dir = ROOT / "data/youtube/subscriptions/archive"
@@ -73,7 +74,7 @@ class Subscription:
             data.update(new_data)
         else:
             data = new_data
-            data['first_seen'] = batch_time.isoformat(),
+            data['first_seen'] = batch_time.isoformat()
 
         dump_json(output_file, data)
         print(f"Wrote {id}");
