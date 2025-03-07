@@ -46,6 +46,53 @@ class Channel:
 
         return cls(**data)
 
+    def get_uploads(self):
+        print("Get uploads")
+        for (video_id, published_at) in self.remote_uploads():
+            print(f"video {video_id} at {published_at}")
+            break
+
+    def remote_uploads(self):
+        buffer_year = None
+        buffer_data = []
+        try:
+            for item in self.retrieve_uploads():
+                video_id = item['contentDetails']['videoId']
+                published_at = datetime.fromisoformat(item['contentDetails']['videoPublishedAt'])
+                year = published_at.year
+
+                if buffer_year and year != buffer_year:
+                    self.update_uploads_from_data(buffer_data)
+                    buffer_data = []
+
+                buffer_year = year
+                buffer_data.append((video_id, published_at))
+
+                yield (video_id, published_at)
+        finally:
+            if buffer_year and buffer_data:
+                self.update_uploads_from_data(buffer_data)
+
+    def retrieve_uploads(self) -> Generator[dict, None, None]:
+        from youtube import get_youtube_client
+        youtube = get_youtube_client()
+        playlist_id = self.playlists_data['uploads']
+        request = youtube.playlistItems().list(
+            playlistId=playlist_id,
+            part="contentDetails",
+        )
+        while request:
+            response = request.execute()
+            for item in response['items']:
+                yield item
+            request = youtube.playlistItems().list_next(request, response)
+
+    def update_uploads_from_data(self, buffer_data):
+        batch_time = Context.get().batch_time
+        year = buffer_data[0][1].year
+        data_file = self.get_uploads_file(year)
+        print(f"Should save {len(buffer_data)} in {data_file}")
+
     @classmethod
     def update(cls, id) -> dict:
         from youtube import get_youtube_client
@@ -137,6 +184,5 @@ class Channel:
         archive_dir = ROOT / "data/youtube/channels/archive"
         return archive_dir / str(year) / f"week-{week_number:02}" / channel_id
 
-
-
-
+    def get_uploads_file(self, year) -> Path:
+        return self.get_active_dir(self.channel_id) / f"uploads/{str(year)}.json"
