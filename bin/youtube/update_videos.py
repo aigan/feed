@@ -14,11 +14,14 @@ channel_id = "UCKW0bV5ltbfDuSw04N_vkyQ" # jonas
 #    channel = subscr.channel
 #    print(channel.title)
 
-for subscr in islice(Subscription.get_hot(), 10):
+
+for subscr in islice(Subscription.get_hot(), 1):
     channel = subscr.channel
     print(f"\n\n## {channel.title}\n")
-    for list in channel.playlists:
-        print(list.title)
+    #for list in channel.playlists:
+    #    print(list.title)
+    for (video_id, published_at) in islice(channel.get_uploads(), 3):
+        print(f"video {video_id} at {published_at}")
 
 
 

@@ -49,8 +49,7 @@ class Channel:
     def get_uploads(self):
         print("Get uploads")
         for (video_id, published_at) in self.remote_uploads():
-            print(f"video {video_id} at {published_at}")
-            break
+            yield (video_id, published_at)
 
     def remote_uploads(self):
         buffer_year = None
@@ -90,8 +89,49 @@ class Channel:
     def update_uploads_from_data(self, buffer_data):
         batch_time = Context.get().batch_time
         year = buffer_data[0][1].year
-        data_file = self.get_uploads_file(year)
+        data_file = self.get_active_uploads_file(year)
         print(f"Should save {len(buffer_data)} in {data_file}")
+        new_videos = [(video_id, published_at.isoformat()) for video_id, published_at in buffer_data]
+
+        if data_file.exists():
+            existing_videos = json.loads(data_file.read_text())
+            self.archive_uploads(existing_videos, new_videos)
+
+            last_new_video_date = new_videos[-1][1]
+            older_videos = [v for v in existing_videos if v[1] < last_new_video_date]
+
+            final_videos = new_videos + older_videos
+        else:
+            final_videos = new_videos
+
+        dump_json(data_file, final_videos)
+
+    def archive_uploads(self, old, new):
+        from difflib import SequenceMatcher
+
+        old_ids = [v[0] for v in old]
+        new_ids = [v[0] for v in new]
+
+        matcher = SequenceMatcher(None, old_ids, new_ids)
+        need_archive = any(tag in ('replace', 'delete') for tag, i1, i2, j1, j2 in matcher.get_opcodes())
+
+        if not need_archive:
+            return
+
+        video_dict = {}
+
+        for video in old:
+            video_dict[video[0]] = video
+
+        for video in new:
+            video_dict[video[0]] = video
+
+        combined_videos = list(video_dict.values())
+        combined_videos.sort(key=lambda x: x[1], reverse=True)
+
+        year = datetime.fromisoformat(new[0][1]).year
+        archive_file = self.get_archive_uploads_file(year)
+        dump_json(archive_file, combined_videos)
 
     @classmethod
     def update(cls, id) -> dict:
@@ -184,5 +224,8 @@ class Channel:
         archive_dir = ROOT / "data/youtube/channels/archive"
         return archive_dir / str(year) / f"week-{week_number:02}" / channel_id
 
-    def get_uploads_file(self, year) -> Path:
+    def get_active_uploads_file(self, year) -> Path:
         return self.get_active_dir(self.channel_id) / f"uploads/{str(year)}.json"
+
+    def get_archive_uploads_file(self, year) -> Path:
+        return self.get_archive_dir(self.channel_id) / f"uploads/{str(year)}.json"
