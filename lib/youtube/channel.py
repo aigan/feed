@@ -5,8 +5,10 @@ from config import ROOT
 from pprint import pprint
 from datetime import datetime
 import json
-from util import to_obj, from_obj, dump_json, convert_fields
+from util import to_obj, from_obj, dump_json, convert_fields, to_dict
 from context import Context
+
+SCHEMA_VERSION = 1
 
 @dataclass
 class Channel:
@@ -20,10 +22,13 @@ class Channel:
     last_updated: datetime
     published_at: datetime
     playlists_data: dict
-    statistics: dict
+    view_count: int
+    subscriber_count: int
+    video_count: int
     status: dict
     thumbnails: dict
     topic_details: dict
+    schema_version: int
 
     @property
     def playlists(self) -> List[Playlist]:
@@ -32,11 +37,14 @@ class Channel:
 
     @classmethod
     def get(cls, channel_id) -> Channel:
-        output_file = cls.get_active_dir(channel_id) / "channel.json"
-        if output_file.exists():
-            data = json.loads(output_file.read_text())
-        else:
-            data = cls.update(channel_id)
+        data_file = cls.get_active_dir(channel_id) / "channel.json"
+
+        if data_file.exists():
+            data = json.loads(data_file.read_text())
+            if data.get('schema_version', 0) >= SCHEMA_VERSION:
+                return cls(**convert_fields(cls,data))
+
+        data = cls.update(channel_id)
         return cls(**convert_fields(cls,data))
 
 #    def get_uploads(self) -> Generator[Video, None, None]:
@@ -55,6 +63,14 @@ class Channel:
             for (video_id, published_at_data) in data:
                 published_at = datetime.fromisoformat(published_at_data)
                 yield Video.get(video_id)
+
+    def local_uploads_count(self) -> int:
+        uploads_dir = self.get_active_dir(self.channel_id) / "uploads"
+        count = 0;
+        for path in uploads_dir.glob('*.json'):
+            data = json.loads(path.read_text())
+            count += len(data)
+        return count
 
     def remote_uploads(self) -> Generator[Video, None, None]:
         from youtube import Video
@@ -141,18 +157,13 @@ class Channel:
         dump_json(archive_file, combined_videos)
 
     @classmethod
-    def update(cls, id) -> dict:
+    def retrieve(cls, channel_id) -> dict:
         from youtube import get_youtube_client
-        from deepdiff import DeepDiff
-
-        output_file = cls.get_active_dir(id) / "channel.json"
         youtube = get_youtube_client()
-        batch_time = Context.get().batch_time
 
         response = youtube.channels().list(
             part="brandingSettings,contentDetails,localizations,statistics,status,topicDetails,snippet",
-            id=id,
-            #mine=True,
+            id=channel_id,
         ).execute()
         item = to_obj(response['items'][0])
 
@@ -163,27 +174,39 @@ class Channel:
         #sections = sections_response['items']
         #pprint(sections)
 
-        #print(f"Update {id}")
-        new_data = {
+        data = {
             'channel_id': item.id,
             'title': item.snippet.title,
             'banner_external_url': item.brandingSettings.image.bannerExternalUrl,
-            'playlists_data': from_obj(item.contentDetails.relatedPlaylists),
+            'playlists_data': item.contentDetails.relatedPlaylists,
             'custom_url': item.snippet.customUrl,
             'description': item.snippet.description,
             'published_at': datetime.fromisoformat(item.snippet.publishedAt).isoformat(),
-            'thumbnails': from_obj(item.snippet.thumbnails),
-            'statistics': from_obj(item.statistics),
-            'status': from_obj(item.status),
-            'topic_details': from_obj(item.topicDetails),
+            'thumbnails': item.snippet.thumbnails,
+            'view_count': item.statistics.viewCount,
+            'subscriber_count': item.statistics.subscriberCount,
+            'video_count': item.statistics.videoCount,
+            'status': item.status,
+            'topic_details': item.topicDetails,
         }
 
-        new_data_stamps = {
-            'last_updated': batch_time.isoformat(),
-        }
+        return to_dict(data)
+
+
+    @classmethod
+    def update(cls, channel_id) -> dict:
+        from deepdiff import DeepDiff
+
+        print("Update channel")
+        batch_time = Context.get().batch_time
+        new_data = cls.retrieve(channel_id)
+        output_file = cls.get_active_dir(channel_id) / "channel.json"
 
         if output_file.exists():
             data = json.loads(output_file.read_text())
+
+            if data.get('schema_version', 0) < SCHEMA_VERSION:
+                data = cls.migrate(data)
 
             exclude_paths = [
                 "root['first_seen']",
@@ -194,16 +217,15 @@ class Channel:
                 ignore_order=True,
                 exclude_paths=exclude_paths,
             )
+
             if diff:
                 cls.archive(data.copy())
-            else:
-                print("No change")
+
         else:
-            #print(f"Created {id}");
             data = {'first_seen': batch_time.isoformat()}
 
         data.update(new_data)
-        data.update(new_data_stamps)
+        data['last_updated'] =  batch_time.isoformat()
         dump_json(output_file, data)
         return data
 
@@ -232,3 +254,21 @@ class Channel:
 
     def get_archive_uploads_file(self, year) -> Path:
         return self.get_archive_dir(self.channel_id) / f"uploads/{str(year)}.json"
+
+    @classmethod
+    def migrate(cls, data):
+        MIGRATIONS = {
+            0: cls.migrate_v0,
+        }
+
+        print("Migrate data")
+        current = data.get('schema_version', 0)
+        func = MIGRATIONS.get(current)
+        return func(data)
+
+    @classmethod
+    def migrate_v0(cls, data):
+        result = data.copy()
+        result.pop('statistics')
+        result['schema_version'] = 1
+        return result
