@@ -1,10 +1,12 @@
 from dataclasses import dataclass, fields
 from typing import Optional
 
-from util import to_obj, from_obj, dump_json, convert_fields
+from util import to_obj, from_obj, dump_json, convert_fields, to_dict
 from pprint import pprint
 from datetime import datetime
 from context import Context
+from config import ROOT
+import json
 
 @dataclass
 class Video:
@@ -43,8 +45,45 @@ class Video:
 
     @classmethod
     def get(cls, video_id):
-        data = cls.retrieve(video_id)
-        return cls(**data)
+        data = cls.update(video_id)
+        video = cls(**convert_fields(cls, data))
+        #pprint(video)
+        return video
+
+    @classmethod
+    def update(cls, video_id):
+        from deepdiff import DeepDiff
+
+        new_data = cls.retrieve(video_id)
+        data_file = cls.get_active_file(video_id)
+        batch_time = Context.get().batch_time
+        #print(data_file)
+
+        if data_file.exists():
+            data = json.loads(data_file.read_text())
+
+            exclude_paths = [
+                "root['first_seen']",
+                "root['last_updated']",
+                "root['view_count']",
+                "root['like_count']",
+                "root['comment_count']",
+            ]
+            diff = DeepDiff(
+                data, new_data,
+                ignore_order=True,
+                exclude_paths=exclude_paths,
+            )
+            if diff:
+                #pprint(diff)
+                cls.archive(data.copy())
+        else:
+            data = {'first_seen': batch_time.isoformat()}
+
+        data.update(new_data)
+        data['last_updated'] =  batch_time.isoformat()
+        dump_json(data_file, data)
+        return data
 
     @classmethod
     def retrieve(cls, video_id):
@@ -57,18 +96,16 @@ class Video:
         response = request.execute()
         item = to_obj(response['items'][0])
         #pprint(item, width=120)
-        batch_time = Context.get().batch_time
+        #batch_time = Context.get().batch_time
 
-        new_data = {
+        data = {
             'video_id': video_id,
             'title': item.snippet.title,
             'channel_id': item.snippet.channelId,
             'recording_date': item.recordingDetails.recordingDate,
             'published_at': item.snippet.publishedAt,
-            'first_seen': batch_time.isoformat(),
-            'last_updated': batch_time.isoformat(),
             'description': item.snippet.description,
-            'thumbnails_data': from_obj(item.snippet.thumbnails),
+            'thumbnails_data': item.snippet.thumbnails,
             'tags': item.snippet.tags,
             'category_id': item.snippet.categoryId,
             'live_start': item.liveStreamingDetails.scheduledStartTime,
@@ -79,7 +116,7 @@ class Video:
             'resolution_tier': item.contentDetails.definition,
             'captioned': item.contentDetails.caption,
             'licensed_content': item.contentDetails.licensedContent,
-            'content_rating_data': from_obj(item.contentDetails.contentRating),
+            'content_rating_data': item.contentDetails.contentRating,
             'viewing_projection': item.contentDetails.projection,
             'privacy_status': item.status.privacyStatus,
             'license': item.status.license,
@@ -89,8 +126,25 @@ class Video:
             'view_count': item.statistics.viewCount,
             'like_count': item.statistics.likeCount,
             'comment_count': item.statistics.commentCount,
-            'topic_details': from_obj(item.topicDetails),
+            'topic_details': item.topicDetails,
             'has_paid_product_placement': item.paidProductPlacementDetails.hasPaidProductPlacement,
         }
 
-        return convert_fields(cls, new_data)
+        return to_dict(data)
+
+    @classmethod
+    def archive(cls, data):
+        print(f"Should archive {data['title']}")
+        video_id = data['video_id']
+        archive_file = cls.get_archive_file(cls, video_id)
+        if archive_file.exists(): return
+        dump_json(archive_file, data)
+
+    @classmethod
+    def get_active_file(cls, video_id):
+        return ROOT / "data/youtube/video/active" / video_id[:2] / f"{video_id}.json"
+
+    @classmethod
+    def get_archive_file(cls, video_id):
+        # TODO: add versioning
+        return ROOT / "data/youtube/video/archive" / video_id[:2] / f"{video_id}.json"

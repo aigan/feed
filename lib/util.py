@@ -35,11 +35,19 @@ def to_obj(d):
     return d
 
 def from_obj(obj):
+    if isinstance(obj, NoneObject):
+        return None
     if isinstance(obj, SafeNamespace):
         return {k: from_obj(v) for k, v in vars(obj).items()}
     elif isinstance(obj, list):
         return [from_obj(item) for item in obj]
     return obj
+
+def to_dict(data):
+    result = {}
+    for key in data.keys():
+        result[key] = from_obj(data.get(key))
+    return result
 
 def dump_json(file, data, **kwargs):
     file.parent.mkdir(parents=True, exist_ok=True)

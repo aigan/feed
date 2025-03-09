@@ -123,8 +123,7 @@ class Channel:
         matcher = SequenceMatcher(None, old_ids, new_ids)
         need_archive = any(tag in ('replace', 'delete') for tag, i1, i2, j1, j2 in matcher.get_opcodes())
 
-        if not need_archive:
-            return
+        if not need_archive: return
 
         video_dict = {}
 
@@ -196,10 +195,7 @@ class Channel:
                 exclude_paths=exclude_paths,
             )
             if diff:
-                #print("Would archive channel")
-                #pprint(diff)
                 cls.archive(data.copy())
-                #return data
             else:
                 print("No change")
         else:
@@ -215,8 +211,7 @@ class Channel:
     def archive(cls, data):
         id = data['channel_id']
         archive_file = cls.get_archive_dir(id) / "channel.json"
-        if archive_file.exists():
-            return
+        if archive_file.exists(): return
         dump_json(archive_file, data)
 
     @classmethod
