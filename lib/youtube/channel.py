@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import Optional
 
 from config import ROOT
 from pprint import pprint
@@ -29,6 +30,7 @@ class Channel:
     thumbnails: dict
     topic_details: dict
     schema_version: int
+    last_uploads_mirror: Optional[datetime] = None
 
     @property
     def playlists(self) -> List[Playlist]:
@@ -204,22 +206,9 @@ class Channel:
 
         if output_file.exists():
             data = json.loads(output_file.read_text())
-
             if data.get('schema_version', 0) < SCHEMA_VERSION:
                 data = cls.migrate(data)
-
-            exclude_paths = [
-                "root['first_seen']",
-                "root['last_updated']",
-            ]
-            diff = DeepDiff(
-                data, new_data,
-                ignore_order=True,
-                exclude_paths=exclude_paths,
-            )
-
-            if diff:
-                cls.archive(data.copy())
+            cls.archive(data, new_data)
 
         else:
             data = {'first_seen': batch_time.isoformat()}
@@ -230,11 +219,26 @@ class Channel:
         return data
 
     @classmethod
-    def archive(cls, data):
-        id = data['channel_id']
+    def archive(cls, old, new):
+        from deepdiff import DeepDiff
+
+        exclude_paths = [
+            "root['first_seen']",
+            "root['last_updated']",
+            "root['last_uploads_mirror']",
+        ]
+        diff = DeepDiff(
+            old, new,
+            ignore_order=True,
+            exclude_paths=exclude_paths,
+        )
+
+        if not diff: return
+
+        id = old['channel_id']
         archive_file = cls.get_archive_dir(id) / "channel.json"
         if archive_file.exists(): return
-        dump_json(archive_file, data)
+        dump_json(archive_file, old)
 
     @classmethod
     def get_active_dir(cls, channel_id) -> Path:

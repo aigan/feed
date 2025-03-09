@@ -2,14 +2,19 @@
 from youtube import Channel, Subscription
 from pprint import pprint
 from itertools import islice
+from context import Context
 
-for subscr in islice(Subscription.get_hot(), 1):
+batch_time = Context.get().batch_time
+
+for subscr in islice(Subscription.get_hot(), 2):
     channel = subscr.channel
-    print(f"\n\n## {channel.title}\n")
-    local_uploads_count = channel.local_uploads_count()
-    print(f"Local uploads: {local_uploads_count}")
-    print(f"Channel uploads: {channel.video_count}")
-    print(f"Tital items from subscr: {subscr.total_item_count}")
+    print(f"\n\n## {channel.title}: {channel.last_uploads_mirror}\n")
+    if channel.last_uploads_mirror != None: continue
 
+    #for video in channel.remote_uploads():
+    #    print(f" * {video.published_at}: {video.title}")
+
+    channel.last_uploads_mirror = batch_time
+    #channel.save() # TODO
 
 print("done")
