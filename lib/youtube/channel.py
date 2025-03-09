@@ -5,7 +5,7 @@ from config import ROOT
 from pprint import pprint
 from datetime import datetime
 import json
-from util import to_obj, from_obj, dump_json
+from util import to_obj, from_obj, dump_json, convert_fields
 from context import Context
 
 @dataclass
@@ -33,33 +33,31 @@ class Channel:
     @classmethod
     def get(cls, channel_id) -> Channel:
         output_file = cls.get_active_dir(channel_id) / "channel.json"
-        #print(f"Looking for file {output_file}");
         if output_file.exists():
-            #print("data exist")
             data = json.loads(output_file.read_text())
         else:
             data = cls.update(channel_id)
+        return cls(**convert_fields(cls,data))
 
-        data['first_seen'] = datetime.fromisoformat(data['first_seen'])
-        data['last_updated'] = datetime.fromisoformat(data['last_updated'])
-        data['published_at'] = datetime.fromisoformat(data['published_at'])
+#    def get_uploads(self) -> Generator[Video, None, None]:
+#        # TODO: check age of local file or dir
+#        first_local = next(local_videos)
+#        first_time = first_local.published_at
+#        print(f"First is {first_time}");
+#        for video in self.remote_uploads():
+#            yield video
 
-        return cls(**data)
-
-    def get_uploads(self):
-        print("Get uploads")
-        for (video_id, published_at) in self.remote_uploads():
-            yield (video_id, published_at)
-
-    def local_uploads(self):
+    def local_uploads(self) -> Generator[Video, None, None]:
+        from youtube import Video
         uploads_dir = self.get_active_dir(self.channel_id) / "uploads"
         for path in sorted(uploads_dir.glob('*.json'), reverse=True):
             data = json.loads(path.read_text())
             for (video_id, published_at_data) in data:
                 published_at = datetime.fromisoformat(published_at_data)
-                yield (video_id, published_at)
+                yield Video.get(video_id)
 
-    def remote_uploads(self):
+    def remote_uploads(self) -> Generator[Video, None, None]:
+        from youtube import Video
         buffer_year = None
         buffer_data = []
         try:
@@ -75,7 +73,7 @@ class Channel:
                 buffer_year = year
                 buffer_data.append((video_id, published_at))
 
-                yield (video_id, published_at)
+                yield Video.get(video_id)
         finally:
             if buffer_year and buffer_data:
                 self.update_uploads_from_data(buffer_data)
@@ -87,9 +85,11 @@ class Channel:
         request = youtube.playlistItems().list(
             playlistId=playlist_id,
             part="contentDetails",
+            maxResults=50
         )
         while request:
             response = request.execute()
+            #print(f"Batch with {len(response['items'])}")
             for item in response['items']:
                 yield item
             request = youtube.playlistItems().list_next(request, response)
@@ -98,7 +98,7 @@ class Channel:
         batch_time = Context.get().batch_time
         year = buffer_data[0][1].year
         data_file = self.get_active_uploads_file(year)
-        print(f"Should save {len(buffer_data)} in {data_file}")
+        #print(f"Should save {len(buffer_data)} in {data_file}")
         new_videos = [(video_id, published_at.isoformat()) for video_id, published_at in buffer_data]
 
         if data_file.exists():

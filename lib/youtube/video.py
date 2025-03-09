@@ -45,10 +45,12 @@ class Video:
 
     @classmethod
     def get(cls, video_id):
-        data = cls.update(video_id)
-        video = cls(**convert_fields(cls, data))
-        #pprint(video)
-        return video
+        data_file = cls.get_active_file(video_id)
+        if data_file.exists():
+            data = json.loads(data_file.read_text())
+        else:
+            data = cls.update(video_id)
+        return cls(**convert_fields(cls, data))
 
     @classmethod
     def update(cls, video_id):
