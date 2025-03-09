@@ -134,17 +134,25 @@ class Video:
 
     @classmethod
     def archive(cls, data):
-        print(f"Should archive {data['title']}")
         video_id = data['video_id']
-        archive_file = cls.get_archive_file(cls, video_id)
-        if archive_file.exists(): return
+        next_version = cls.latest_version(video_id) + 1
+        archive_dir = cls.get_archive_dir(video_id)
+        archive_file = archive_dir / f"v{next_version}.json"
         dump_json(archive_file, data)
 
     @classmethod
     def get_active_file(cls, video_id):
-        return ROOT / "data/youtube/video/active" / video_id[:2] / f"{video_id}.json"
+        return ROOT / "data/youtube/videos/active" / video_id[:2] / f"{video_id}.json"
 
     @classmethod
-    def get_archive_file(cls, video_id):
-        # TODO: add versioning
-        return ROOT / "data/youtube/video/archive" / video_id[:2] / f"{video_id}.json"
+    def get_archive_dir(cls, video_id):
+        return ROOT / "data/youtube/videos/archive" / video_id[:2] / video_id
+
+    @classmethod
+    def latest_version(cls, video_id):
+        archive_dir = cls.get_archive_dir(video_id)
+        version_files = archive_dir.glob("v*.json")
+        return max(
+            (int(f.stem[1:]) for f in version_files),
+            default=0
+        )
