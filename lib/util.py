@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from types import SimpleNamespace
 import json
 
@@ -47,3 +49,52 @@ def dump_json(file, data, **kwargs):
         indent=2,      # Default pretty printing
         **kwargs,
     ))
+
+
+def safe_convert(converter_func):
+    """Decorator that handles None or empty string inputs"""
+    def wrapper(value):
+        if (value is None
+            or (isinstance(value, str) and value.strip() == '')
+            or (hasattr(value, '__class__') and value.__class__.__name__ == 'NoneObject')
+            #or (hasattr(value, '__bool__') and not bool(value))
+            ):
+            return None
+        return converter_func(value)
+    return wrapper
+
+from datetime import datetime
+TYPE_CONVERTERS = {
+    datetime: safe_convert(datetime.fromisoformat),
+    int: safe_convert(int),
+    #float: safe_convert(float),
+    bool: safe_convert(lambda v: str(v).lower() in ('true', 'yes', '1', 'on') if isinstance(v, str) else bool(v)),
+}
+
+def convert_fields(cls, data: Dict[str, Any]) -> Dict[str, Any]:
+    from typing import Any, Dict, Callable, get_type_hints, get_origin, get_args, Optional, Union
+    """
+    Convert fields in data according to their types in the class.
+    Handles both direct types and Optional[Type] annotations.
+    """
+    result = data.copy()
+    type_hints = get_type_hints(cls)
+
+    for field_name, field_type in type_hints.items():
+        if field_name not in result:
+            continue
+
+        base_types = []
+        origin = get_origin(field_type)
+
+        if origin is Union or origin is Optional:
+            base_types = [t for t in get_args(field_type) if t is not type(None)]
+        else:
+            base_types = [field_type]
+
+        for base_type in base_types:
+            if base_type in TYPE_CONVERTERS:
+                result[field_name] = TYPE_CONVERTERS[base_type](result[field_name])
+                break
+
+    return result

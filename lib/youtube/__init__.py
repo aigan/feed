@@ -3,3 +3,4 @@ from .ratings import Rating
 from .subscription import Subscription
 from .channel import Channel
 from .playlist import Playlist
+from .video import Video

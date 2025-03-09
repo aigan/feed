@@ -51,6 +51,14 @@ class Channel:
         for (video_id, published_at) in self.remote_uploads():
             yield (video_id, published_at)
 
+    def local_uploads(self):
+        uploads_dir = self.get_active_dir(self.channel_id) / "uploads"
+        for path in sorted(uploads_dir.glob('*.json'), reverse=True):
+            data = json.loads(path.read_text())
+            for (video_id, published_at_data) in data:
+                published_at = datetime.fromisoformat(published_at_data)
+                yield (video_id, published_at)
+
     def remote_uploads(self):
         buffer_year = None
         buffer_data = []
