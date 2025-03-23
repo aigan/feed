@@ -4,12 +4,12 @@ from typing import Optional
 
 from config import ROOT
 from pprint import pprint
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from util import to_obj, from_obj, dump_json, convert_fields, to_dict
 from context import Context
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 @dataclass
 class Channel:
@@ -25,17 +25,26 @@ class Channel:
     playlists_data: dict
     view_count: int
     subscriber_count: int
-    video_count: int
+    uploads_count: int
     status: dict
     thumbnails: dict
     topic_details: dict
     schema_version: int
-    last_uploads_mirror: Optional[datetime] = None
+    #last_uploads_mirror: Optional[datetime] = None
 
     @property
     def playlists(self) -> List[Playlist]:
         from youtube import Playlist
         return Playlist.for_channel(self.channel_id)
+
+    @property
+    def local_uploads_count(self) -> int:
+        uploads_dir = self.get_active_dir(self.channel_id) / "uploads"
+        count = 0;
+        for path in uploads_dir.glob('*.json'):
+            data = json.loads(path.read_text())
+            count += len(data)
+        return count
 
     @classmethod
     def get(cls, channel_id) -> Channel:
@@ -48,6 +57,17 @@ class Channel:
 
         data = cls.update(channel_id)
         return cls(**convert_fields(cls,data))
+
+    def sync(self):
+        batch_time = Context.get().batch_time
+        age = batch_time - self.last_updated
+        if age > timedelta(days=1):
+            data = self.__class__.update(self.channel_id)
+            record =  convert_fields(self.__class__, data)
+            for field, value in record.items():
+                if hasattr(self, field):
+                    setattr(self, field, value)
+        return self
 
 #    def get_uploads(self) -> Generator[Video, None, None]:
 #        # TODO: check age of local file or dir
@@ -65,14 +85,6 @@ class Channel:
             for (video_id, published_at_data) in data:
                 published_at = datetime.fromisoformat(published_at_data)
                 yield Video.get(video_id)
-
-    def local_uploads_count(self) -> int:
-        uploads_dir = self.get_active_dir(self.channel_id) / "uploads"
-        count = 0;
-        for path in uploads_dir.glob('*.json'):
-            data = json.loads(path.read_text())
-            count += len(data)
-        return count
 
     def remote_uploads(self) -> Generator[Video, None, None]:
         from youtube import Video
@@ -158,6 +170,39 @@ class Channel:
         archive_file = self.get_archive_uploads_file(year)
         dump_json(archive_file, combined_videos)
 
+    def mirror_uploads(self):
+        """Mirror all channel uploads to local storage"""
+        sync_file = self.get_active_dir(self.channel_id) / "uploads.json"
+        batch_time = Context.get().batch_time
+        if sync_file.exists():
+            data = json.loads(sync_file.read_text())
+            self.fetch_recent_uploads()
+        else:
+            data = {'first_updated': batch_time.isoformat()}
+            self.fetch_all_uploads()
+        data['last_uploads_mirror'] = batch_time.isoformat()
+        dump_json(sync_file, data)
+
+    def fetch_all_uploads(self):
+        self.sync()
+        print(f"Uploaded {self.uploads_count} videos")
+        count = 0
+        for video in self.remote_uploads():
+            count += 1
+            print(f"Video {count} of {self.uploads_count} at {video.published_at}: {video.title}")
+
+    def fetch_recent_uploads(self):
+        try:
+            last_video = next(self.local_uploads())
+        except StopIteration:
+            return self.fetch_all_uploads()
+        last_local_upload = last_video.published_at
+        print(f"Sync to {last_local_upload}")
+        for video in self.remote_uploads():
+            print(f"Video {video.published_at}: {video.title}")
+            if video.published_at < last_local_upload:
+                break
+
     @classmethod
     def retrieve(cls, channel_id) -> dict:
         from youtube import get_youtube_client
@@ -179,6 +224,7 @@ class Channel:
         data = {
             'channel_id': item.id,
             'title': item.snippet.title,
+            'schema_version': SCHEMA_VERSION,
             'banner_external_url': item.brandingSettings.image.bannerExternalUrl,
             'playlists_data': item.contentDetails.relatedPlaylists,
             'custom_url': item.snippet.customUrl,
@@ -187,7 +233,7 @@ class Channel:
             'thumbnails': item.snippet.thumbnails,
             'view_count': item.statistics.viewCount,
             'subscriber_count': item.statistics.subscriberCount,
-            'video_count': item.statistics.videoCount,
+            'uploads_count': item.statistics.videoCount,
             'status': item.status,
             'topic_details': item.topicDetails,
         }
@@ -225,7 +271,7 @@ class Channel:
         exclude_paths = [
             "root['first_seen']",
             "root['last_updated']",
-            "root['last_uploads_mirror']",
+            #"root['last_uploads_mirror']",
         ]
         diff = DeepDiff(
             old, new,
@@ -262,7 +308,8 @@ class Channel:
     @classmethod
     def migrate(cls, data):
         MIGRATIONS = {
-            0: cls.migrate_v0,
+            0: cls.migrate_v1,
+            1: cls.migrate_v1,
         }
 
         print("Migrate data")
@@ -271,8 +318,10 @@ class Channel:
         return func(data)
 
     @classmethod
-    def migrate_v0(cls, data):
+    def migrate_v1(cls, data):
         result = data.copy()
-        result.pop('statistics')
-        result['schema_version'] = 1
+        result.pop('last_uploads_mirror', None)
+        result.pop('statistics', None)
+        result['uploads_count'] = result.pop('video_count', None)
+        result['schema_version'] = 2
         return result
