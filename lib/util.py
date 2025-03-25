@@ -49,16 +49,6 @@ def to_dict(data):
         result[key] = from_obj(data.get(key))
     return result
 
-def dump_json(file, data, **kwargs):
-    file.parent.mkdir(parents=True, exist_ok=True)
-    return file.write_text(json.dumps(
-        data,
-        default=vars,  # Handles SimpleNamespace
-        indent=2,      # Default pretty printing
-        **kwargs,
-    ))
-
-
 def safe_convert(converter_func):
     """Decorator that handles None or empty string inputs"""
     def wrapper(value):
@@ -106,3 +96,36 @@ def convert_fields(cls, data: Dict[str, Any]) -> Dict[str, Any]:
                 break
 
     return result
+
+def to_serializable(obj):
+    """Convert Python objects to JSON-serializable types."""
+    from dataclasses import asdict, is_dataclass
+
+    if is_dataclass(obj):
+        # Convert dataclass to dict
+        obj_dict = asdict(obj)
+        # Process the dict to handle nested objects
+        return {k: to_serializable(v) for k, v in obj_dict.items()}
+
+    if hasattr(obj, 'isoformat'):  # Handle datetime objects
+        return obj.isoformat()
+
+    if isinstance(obj, dict):
+        # Handle dictionaries with non-serializable values
+        return {k: to_serializable(v) for k, v in obj.items()}
+
+    if isinstance(obj, (list, tuple)):
+        # Handle lists and tuples
+        return [to_serializable(item) for item in obj]
+
+    # Return other primitive types as is
+    return obj
+
+def dump_json(file, data, **kwargs):
+    file.parent.mkdir(parents=True, exist_ok=True)
+    return file.write_text(json.dumps(
+        data,
+        default=vars,
+        indent=2,
+        **kwargs,
+    ))
