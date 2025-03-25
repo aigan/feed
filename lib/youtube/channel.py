@@ -173,15 +173,35 @@ class Channel:
     def mirror_uploads(self):
         """Mirror all channel uploads to local storage"""
         sync_file = self.get_active_dir(self.channel_id) / "uploads.json"
-        batch_time = Context.get().batch_time
         if sync_file.exists():
-            data = json.loads(sync_file.read_text())
             self.fetch_recent_uploads()
         else:
-            data = {'first_updated': batch_time.isoformat()}
             self.fetch_all_uploads()
-        data['last_uploads_mirror'] = batch_time.isoformat()
-        dump_json(sync_file, data)
+
+    def sync_record(self):
+        batch_time = Context.get().batch_time
+        defaults = {
+            'first_updated': batch_time.isoformat(),
+            'last_uploads_mirror': None,
+            'last_uploads_sync': None,
+        }
+
+        sync_file = self.get_active_dir(self.channel_id) / "uploads.json"
+        if sync_file.exists():
+            data =  json.loads(sync_file.read_text())
+            return to_obj(convert_fields(dict, {**defaults, **data}))
+        else:
+            return to_obj(convert_fields(dict, defaults))
+
+    def sync_record_save(self, data):
+        sync_file = self.get_active_dir(self.channel_id) / "uploads.json"
+        # Temporary workaround. ... Should use utils for conversion
+        data_dict = {
+            'first_updated': data.first_updated.isoformat() if hasattr(data.first_updated, 'isoformat') else data.first_updated,
+            'last_uploads_mirror': data.last_uploads_mirror.isoformat() if hasattr(data.last_uploads_mirror, 'isoformat') else data.last_uploads_mirror,
+            'last_uploads_sync': data.last_uploads_sync.isoformat() if hasattr(data.last_uploads_sync, 'isoformat') else data.last_uploads_sync,
+        }
+        dump_json(sync_file, data_dict)
 
     def fetch_all_uploads(self):
         self.sync()
@@ -190,18 +210,34 @@ class Channel:
         for video in self.remote_uploads():
             count += 1
             print(f"Video {count} of {self.uploads_count} at {video.published_at}: {video.title}")
+            if count == 1:
+                latest_video_date = video.published_at
+        sync_data = self.sync_record()
+        batch_time = Context.get().batch_time
+        sync_data.last_uploads_mirror = batch_time
+        sync_data.last_uploads_sync = latest_video_date or batch_time
+        self.sync_record_save(sync_data)
 
     def fetch_recent_uploads(self):
-        try:
-            last_video = next(self.local_uploads())
-        except StopIteration:
+        sync_data = self.sync_record()
+        last_sync = sync_data.last_uploads_sync
+        if last_sync is None:
             return self.fetch_all_uploads()
-        last_local_upload = last_video.published_at
-        print(f"Sync to {last_local_upload}")
+        #try:
+        #    last_video = next(self.local_uploads())
+        #except StopIteration:
+        #    return self.fetch_all_uploads()
+        print(f"Sync to {last_sync}")
         for video in self.remote_uploads():
             print(f"Video {video.published_at}: {video.title}")
-            if video.published_at < last_local_upload:
+            if latest_video_date is None:
+                latest_video_date = video.published_at
+            if video.published_at < last_sync:
                 break
+        sync_data = self.sync_record()
+        batch_time = Context.get().batch_time
+        sync_data.last_uploads_sync = latest_video_date or batch_time
+        self.sync_record_save(sync_data)
 
     @classmethod
     def retrieve(cls, channel_id) -> dict:
