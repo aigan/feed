@@ -43,9 +43,18 @@ class Video:
     live_chat_id: Optional[str] = None
     recording_date: Optional[datetime] = None
 
+    def transcript(self):
+        from youtube import Transcript
+        data_file = self.__class__.get_active_dir(self.video_id) / "transcript.json"
+        if data_file.exists():
+            return json.loads(data_file.read_text())
+        transcript = Transcript.download(self.video_id)
+        dump_json(data_file, transcript)
+        return transcript
+
     @classmethod
     def get(cls, video_id):
-        data_file = cls.get_active_file(video_id)
+        data_file = cls.get_active_dir(video_id) / "video.json"
         if data_file.exists():
             data = json.loads(data_file.read_text())
         else:
@@ -57,7 +66,7 @@ class Video:
         from deepdiff import DeepDiff
 
         new_data = cls.retrieve(video_id)
-        data_file = cls.get_active_file(video_id)
+        data_file = cls.get_active_dir(video_id) / "video.json"
         batch_time = Context.get().batch_time
         #print(data_file)
 
@@ -143,8 +152,8 @@ class Video:
         dump_json(archive_file, data)
 
     @classmethod
-    def get_active_file(cls, video_id):
-        return ROOT / "data/youtube/videos/active" / video_id[:2] / f"{video_id}.json"
+    def get_active_dir(cls, video_id):
+        return ROOT / "data/youtube/videos/active" / video_id[:2] / video_id
 
     @classmethod
     def get_archive_dir(cls, video_id):
