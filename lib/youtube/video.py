@@ -160,6 +160,10 @@ class Video:
         return ROOT / "data/youtube/videos/archive" / video_id[:2] / video_id
 
     @classmethod
+    def get_processed_dir(cls, video_id):
+        return cls.get_active_dir(video_id) / 'processed'
+
+    @classmethod
     def latest_version(cls, video_id):
         archive_dir = cls.get_archive_dir(video_id)
         version_files = archive_dir.glob("v*.json")
