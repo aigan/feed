@@ -13,6 +13,10 @@ class YTTranscriptFormatter:
     def get(cls, video):
         transcript = video.transcript()
 
+        #from analysis import YTAPIVideoExtractor
+        #summary = YTAPIVideoExtractor.get(video)
+        #print(summary['text']);
+
         chunks = []
         chunk_id = 0
 
@@ -23,7 +27,9 @@ class YTTranscriptFormatter:
             chunks.append(chunk_text)
             chunk_id +=1
 
-        return cls.merge_transcript_chunks(chunks)
+        text = cls.merge_transcript_chunks(chunks)
+        pprint(cls.extract_headers_with_timestamps(text))
+        return text
 
     @classmethod
     def extract_transcript_segment(cls, transcript, offset):
@@ -56,39 +62,36 @@ class YTTranscriptFormatter:
         if chunk is None:
             return None
 
+        first_line = chunk.partition('\n')[0]
+        print(f"Processing chunk {chunk_id}: {first_line}")
+
         prompt = """
 Process this transcript chunk. Improve readability. Remove stutters or filler words. Some words may
 be wrong because they sound similar to the real ones. Use the context to figure out what was
 actually said. Create complete sentences but dont change any words from the original. Group sentences in paragraphs.
 
-Chapter timestamps from the summary may not be exact. Move the chapter headings to their right place
-without changing their ordering. Insert one or two extra chapters or sub-chapters if there was none
-in this chunk, depending on the content.
-
-Format chapter headings with using `## {{heading}}`
+Insert a chapter heading when a clear new topic or theme begins. Only insert a heading when the conversation clearly shifts — such as starting a new discussion, answering a new question, or moving to a new aspect of the subject. You can skip headings if the topic doesn't shift. Avoid repeating similar headings.
+Format chapter headings using a line starting with `## ` followed by the heading text.
 
 Each paragraph must start with the timestamp (an integer in seconds), then a colon and a space, then the text. Do not use markdown.
 Example:  
 123: Welcome to this new video.
         
-Summary for the whole of the video:
-{summary}
-
 {extra_instructions}
 
 Transcript chunk:
 {transcript_chunk}
         """
 
-        from analysis import YTAPIVideoExtractor
-        summary = YTAPIVideoExtractor.get(video)
+#        from analysis import YTAPIVideoExtractor
+#        summary = YTAPIVideoExtractor.get(video)
 
         instructions = ""
         is_last = cls.is_last_chunk(transcript, chunk_id)
         if chunk_id == 0:
             if is_last:
                 instructions = "This is the *whole* of the transcript"
-            else:            
+            else:
                 instructions = """
                 This is the *beginning* of the transcript.
                 Start new paragraphs and chapters naturally.
@@ -101,7 +104,7 @@ Transcript chunk:
             chunk_order = (
                 "This is the *end* of the transcript." if is_last else "This is a middle chunk."
             )
-            
+
             instructions = f"""
             {chunk_order}
             The first lines will repeat the end of the previous chunk.
@@ -123,7 +126,7 @@ Transcript chunk:
         text = cls.ask_llm(
             prompt,
             {
-                "summary": summary['text'],
+#                "summary": summary['text'],
                 "transcript_chunk": chunk,
                 "extra_instructions": instructions,
             },
@@ -186,7 +189,7 @@ Transcript chunk:
                 except ValueError:
                     continue
         return None
-    
+
     @classmethod
     def extract_timestamp_from_line(cls, line):
         """Extract timestamp from a single line, if present."""
@@ -196,15 +199,15 @@ Transcript chunk:
             except ValueError:
                 pass
         return None
-    
+
     @classmethod
     def merge_transcript_chunks(cls, chunks):
         """
         Merge transcript chunks by finding overlap points between consecutive chunks.
-        
+
         Args:
             chunks: List of transcript chunks in order (oldest to newest)
-        
+
         Returns:
             Merged transcript as a string
         """
@@ -212,29 +215,69 @@ Transcript chunk:
             return ""
         if len(chunks) == 1:
             return chunks[0]
-        
+
         result = []
         previous_chunk = chunks[0]
-        
+
         for current_chunk in chunks[1:]:
             current_first_timestamp = cls.extract_first_timestamp(current_chunk)
-            
+
             if current_first_timestamp is not None:
                 # Keep only parts of previous chunk before the current chunk starts
                 previous_lines = previous_chunk.strip().split('\n')
-                cut_index = next((i for i, line in enumerate(previous_lines) 
-                                if cls.extract_timestamp_from_line(line) is not None and 
-                                cls.extract_timestamp_from_line(line) >= current_first_timestamp), 
+                cut_index = next((i for i, line in enumerate(previous_lines)
+                                if cls.extract_timestamp_from_line(line) is not None and
+                                cls.extract_timestamp_from_line(line) >= current_first_timestamp),
                                 len(previous_lines))
-                
+
                 result.append('\n'.join(previous_lines[:cut_index]))
             else:
                 # No timestamp found, keep entire previous chunk
                 result.append(previous_chunk)
-            
+
             previous_chunk = current_chunk
-        
+
         # Add the final chunk
         result.append(previous_chunk)
-        
+
         return '\n'.join(filter(None, result))
+
+    @classmethod
+    def extract_headers_with_timestamps(cls, transcript_text: str):
+        """
+        Extract headers with their timestamps from transcript text.
+        Remove duplicates where the preceding heading is exactly the same.
+
+        Args:
+            transcript_text: The full transcript text with headers and timestamps
+
+        Returns:
+            List of tuples [(timestamp, heading_text)] without exact duplicates
+        """
+        import re
+
+        # Find all headers and timestamps in the text
+        headers = [(m.group(1), m.start()) for m in re.finditer(r'^## (.+?)$', transcript_text, re.MULTILINE)]
+        timestamps = [(int(m.group(1)), m.start()) for m in re.finditer(r'^(\d+):\s', transcript_text, re.MULTILINE)]
+
+        if not headers or not timestamps:
+            return []
+
+        # Sort both lists by position
+        headers.sort(key=lambda x: x[1])
+        timestamps.sort(key=lambda x: x[1])
+
+        # Pair each header with its following timestamp
+        header_timestamps = []
+        ts_index = 0
+
+        for header_text, header_pos in headers:
+            # Find the next timestamp after this header, continuing from last position
+            while ts_index < len(timestamps) and timestamps[ts_index][1] <= header_pos:
+                ts_index += 1
+
+            # If we found a timestamp after this header, pair them
+            if ts_index < len(timestamps):
+                header_timestamps.append((timestamps[ts_index][0], header_text))
+
+        return header_timestamps
