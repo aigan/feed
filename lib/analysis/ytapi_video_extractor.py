@@ -1,7 +1,8 @@
 from context import Context
 from pprint import pprint
+from analysis import Processor
 
-class YTAPIVideoExtractor:
+class YTAPIVideoExtractor(Processor):
     PROMPT_VERSION = 1
 
     @classmethod
@@ -28,11 +29,7 @@ class YTAPIVideoExtractor:
 
         description = Transcript.process_timestamps(video.description)
 
-        from langchain_openai import ChatOpenAI
-        from langchain_core.prompts import ChatPromptTemplate
-        from langchain_core.output_parsers import StrOutputParser
-
-        prompt = ChatPromptTemplate.from_template("""
+        prompt = """
 VIDEO METADATA EXTRACTION
 
 Given the following video title, description, and tags, extract structured information about speakers, timestamps and topics.
@@ -66,15 +63,16 @@ Video Title: {title}
 Video Description:
 {description}
 Video Tags: {tags}
-        """)
+        """
 
-        model = ChatOpenAI(model="gpt-4o-mini")
-        chain = prompt | model | StrOutputParser()
-        text_result = chain.invoke({
+        text_result = cls.ask_llm(
+            prompt,
+            {
             "title": video.title,
             "description": description,
             "tags": ", ".join(video.tags),
-        })
+            }
+        )
 
         batch_time = Context.get().batch_time
         result = {
@@ -89,3 +87,16 @@ Video Tags: {tags}
         dump_json(result_file, result)
 
         return result
+
+    @classmethod
+    def get_chapters(cls, video):
+        import re
+        summary = cls.get(video)['text']
+
+        timestamp_match = re.search(r'TIMESTAMPS:(.*?)(\n\s*\n|\Z)', summary, re.DOTALL)
+        if not timestamp_match: return []
+
+        chapter_re = r'(?P<seconds>\d+): (?P<description>.*?)(?=\n\d+:|$)'
+        chapter_matches = re.finditer(chapter_re, timestamp_match.group(1), re.DOTALL)
+
+        return [[int(m['seconds']), m['description'].strip()] for m in chapter_matches]
