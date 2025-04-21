@@ -10,12 +10,11 @@ class YTTranscriptFormatter(Processor):
 
     @classmethod
     def get(cls, video):
+        from youtube import Video
+        transcript_file = Video.get_processed_dir(video.video_id) / "transcript.txt"
+        if transcript_file.exists(): return transcript_file.read_text()
+
         transcript = video.transcript()
-
-        #from analysis import YTAPIVideoExtractor
-        #summary = YTAPIVideoExtractor.get(video)
-        #print(summary['text']);
-
         chunks = []
         chunk_id = 0
 
@@ -27,15 +26,11 @@ class YTTranscriptFormatter(Processor):
             chunk_id +=1
 
         transcript_text = cls.merge_transcript_chunks(chunks)
+        headings_text = cls.get_cleanup_headings(video, transcript_text)
+        result_text = cls.insert_headings_in_transcript(transcript_text, headings_text)
 
-        #headers = cls.extract_headers_with_timestamps(transcript_text)
-        #headers_text = "\n".join(f"{offset}: {text}" for offset, text in headers)
-        #print(headers_text)
-        #exit()
-
-        heading_text = cls.get_cleanup_headings(video, transcript_text)
-
-        return transcript_text
+        transcript_file.write_text(result_text)
+        return result_text
 
     @classmethod
     def extract_transcript_segment(cls, transcript, offset):
@@ -374,3 +369,18 @@ HEADINGS:
         headings_file.write_text(text)
         print(text)
         return text
+
+    @classmethod
+    def insert_headings_in_transcript(cls, transcript_text: str, headings_text: str):
+        import re
+        timestamps = [(int(m.group(1)), 1, m.group(0)) for m in re.finditer(r'^(\d+): (.+)$', transcript_text, re.MULTILINE)]
+        headings = [(int(m.group(1)), 0, m.group(2)) for m in re.finditer(r'^(\d+) (#.+)$', headings_text, re.MULTILINE)]
+
+        merged = timestamps + headings
+        merged.sort(key=lambda x: (x[0], x[1]))
+
+        result = ""
+        for key, prio, line in merged:
+            result += line + "\n\n"
+
+        return result
