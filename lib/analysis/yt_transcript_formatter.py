@@ -15,6 +15,10 @@ class YTTranscriptFormatter(Processor):
         if transcript_file.exists(): return transcript_file.read_text()
 
         transcript = video.transcript()
+        if transcript is None:
+            print("[No transcript]")
+            return ""
+
         chunks = []
         chunk_id = 0
 
@@ -340,8 +344,11 @@ Transcript chunk:
         for offset, source, text in cls.merge_headings(video, transcript_text):
             headings_text += f"{offset} {source}: {text}\n"
 
-        print(headings_text)
-        headings_file.write_text(headings_text)
+
+        if (len(headings_text) == 0):
+            headings_file.write_text("")
+            print("[No headings]")
+            return "";
 
         prompt =  """
 Process the following time‑sorted lines, each in the form "<seconds> <source>: <title>", into a clean Table of Contents.

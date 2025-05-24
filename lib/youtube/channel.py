@@ -116,6 +116,10 @@ class Channel:
 
     def retrieve_uploads(self) -> Generator[dict, None, None]:
         from youtube import get_youtube_client
+        if self.uploads_count == 0:
+            print(f"No uploads to retrieve")
+            return
+
         youtube = get_youtube_client()
         playlist_id = self.playlists_data['uploads']
         request = youtube.playlistItems().list(
@@ -201,6 +205,7 @@ class Channel:
         self.sync()
         print(f"Uploaded {self.uploads_count} videos")
         count = 0
+        latest_video_date = False
         for video in self.remote_uploads():
             count += 1
             print(f"Video {count} of {self.uploads_count} at {video.published_at}: {video.title}")

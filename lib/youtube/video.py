@@ -43,6 +43,32 @@ class Video:
     live_chat_id: Optional[str] = None
     recording_date: Optional[datetime] = None
 
+    @property
+    def channel(self) -> 'Channel':
+        from youtube import Channel
+        return Channel.get(self.channel_id)
+
+    @property
+    def duration_seconds(self) -> int:
+        """Get video duration in seconds."""
+        try:
+            import isodate
+            duration = isodate.parse_duration(self.duration_data)
+            return int(duration.total_seconds())
+        except (AttributeError, ValueError, TypeError):
+            return 0
+
+    @property
+    def duration_formatted(self) -> str:
+        """Get video duration in human-readable format (HH:MM:SS or MM:SS)."""
+        seconds = self.duration_seconds
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours:
+            return f"{hours}:{minutes:02d}:{seconds:02d}"
+        else:
+            return f"{minutes}:{seconds:02d}"
+
     def transcript(self):
         from youtube import Transcript
         data_file = self.__class__.get_active_dir(self.video_id) / "transcript.json"
