@@ -11,6 +11,11 @@ from context import Context
 
 SCHEMA_VERSION = 2
 
+class PlaylistInaccessibleError(Exception):
+    def __init__(self, channel, message=None):
+        super().__init__(message or f"Uploads playlist inaccessible for channel {channel.channel_id} {channel.title}")
+        self.channel = channel
+
 @dataclass
 class Channel:
     """Represents a YouTube channel"""
@@ -37,6 +42,7 @@ class Channel:
         first_updated: datetime
         last_uploads_mirror: Optional[datetime] = None
         last_uploads_sync: Optional[datetime] = None
+        playlist_accessible: bool = True
 
     @property
     def playlists(self) -> List[Playlist]:
@@ -115,7 +121,7 @@ class Channel:
                 self.update_uploads_from_data(buffer_data)
 
     def retrieve_uploads(self) -> Generator[dict, None, None]:
-        from youtube import get_youtube_client
+        from youtube import get_youtube_client, HttpError
         if self.uploads_count == 0:
             print(f"No uploads to retrieve")
             return
@@ -127,12 +133,23 @@ class Channel:
             part="contentDetails",
             maxResults=50
         )
-        while request:
-            response = request.execute()
-            #print(f"Batch with {len(response['items'])}")
-            for item in response['items']:
-                yield item
-            request = youtube.playlistItems().list_next(request, response)
+        try:
+            while request:
+                response = request.execute()
+                #print(f"Batch with {len(response['items'])}")
+                for item in response['items']: yield item
+                request = youtube.playlistItems().list_next(request, response)
+        except HttpError as e:
+            if e.resp.status == 404:
+                try:
+                    channel_data = Channel.retrieve(self.channel_id)
+                    raise PlaylistInaccessibleError(self)
+                except HttpError as channel_error:
+                    if channel_error.resp.status == 404:
+                        print("DEBUG: Channel completely deleted/terminated")
+                    else:
+                        print(f"DEBUG: Channel access issue: {channel_error.resp.status}")
+            raise
 
     def update_uploads_from_data(self, buffer_data):
         batch_time = Context.get().batch_time
@@ -215,6 +232,7 @@ class Channel:
         batch_time = Context.get().batch_time
         sync_data.last_uploads_mirror = batch_time
         sync_data.last_uploads_sync = latest_video_date or batch_time
+        sync_data.playlist_accessible = True
         self.save_sync_state(sync_data)
 
     def fetch_recent_uploads(self):
@@ -222,20 +240,21 @@ class Channel:
         last_sync = sync_data.last_uploads_sync
         if last_sync is None:
             return self.fetch_all_uploads()
-        #try:
-        #    last_video = next(self.local_uploads())
-        #except StopIteration:
-        #    return self.fetch_all_uploads()
         latest_video_date = None
+        playlist_accessible = True
         print(f"Sync to {last_sync}")
-        for video in self.remote_uploads():
-            print(f"Video {video.published_at}: {video.title}")
-            if latest_video_date is None:
-                latest_video_date = video.published_at
-            if video.published_at < last_sync:
-                break
+        try:
+            for video in self.remote_uploads():
+                print(f"Video {video.published_at}: {video.title}")
+                if latest_video_date is None:
+                    latest_video_date = video.published_at
+                if video.published_at < last_sync: break
+        except PlaylistInaccessibleError as e:
+            playlist_accessible = False
+            print(e)
         batch_time = Context.get().batch_time
         sync_data.last_uploads_sync = latest_video_date or batch_time
+        sync_data.playlist_accessible = playlist_accessible
         self.save_sync_state(sync_data)
 
     @classmethod

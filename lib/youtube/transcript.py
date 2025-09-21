@@ -8,7 +8,9 @@ class Transcript:
     @classmethod
     def get_best(cls, video_id):
         try:
-            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            print("Get transcripts")
+            ytt_api = YouTubeTranscriptApi()
+            transcript_list = ytt_api.list(video_id)
 
             # Get all available transcript languages
             available_transcripts = list(transcript_list)
@@ -42,6 +44,7 @@ class Transcript:
 
     @classmethod
     def download(cls, video_id):
+        print("Download transcript");
         transcript = cls.get_best(video_id)
         if transcript == None:
             return None
