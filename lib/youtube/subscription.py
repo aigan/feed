@@ -77,7 +77,7 @@ class Subscription:
             data['first_seen'] = batch_time.isoformat()
 
         dump_json(output_file, data)
-        print(f"Wrote {id}");
+        #print(f"Wrote {id}");
         return data
 
     @classmethod

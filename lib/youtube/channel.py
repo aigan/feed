@@ -243,16 +243,17 @@ class Channel:
         latest_video_date = None
         playlist_accessible = True
         print(f"Sync to {last_sync}")
+        batch_time = Context.get().batch_time
         try:
             for video in self.remote_uploads():
-                print(f"Video {video.published_at}: {video.title}")
+                if video.first_seen == batch_time:
+                    print(f"Video {video.published_at}: {video.title}")
                 if latest_video_date is None:
                     latest_video_date = video.published_at
                 if video.published_at < last_sync: break
         except PlaylistInaccessibleError as e:
             playlist_accessible = False
             print(e)
-        batch_time = Context.get().batch_time
         sync_data.last_uploads_sync = latest_video_date or batch_time
         sync_data.playlist_accessible = playlist_accessible
         self.save_sync_state(sync_data)

@@ -3,16 +3,19 @@ from youtube import Subscription, Channel, Video
 from pprint import pprint
 from itertools import islice
 
-#from context import Context
+from context import Context
+batch_time = Context.get().batch_time
+
+print(f"Update video list. Batch {batch_time}\n")
 
 #channel_id = "UCKW0bV5ltbfDuSw04N_vkyQ" # jonas
 #channel_id = "UCQeRaTukNYft1_6AZPACnog" # Asmon
 #channel_id = "UC_FfTzJh1Y4cIyjCj1xlUeQ" # Welonz
-#channel = Channel.get(channel_id)
-
-#for subscr in Subscription.get_all():
-#    channel = subscr.channel
-#    print(channel.title)
+#channel_id = "UCY3A_5R_m3PXCn5XDhvBBsg" # Adam Millard
+#channel_id = "UCXde0XwoBkAB8qvyPZBQstQ" # DON'T NOD
+#channel_id = "UCZ7AeeVbyslLM_8-nVy2B8Q" # Skillup
+#channel_id = "UCxvSr5kwfPwWBp9aTvyO2iw" # Belinda Ercan
+#channel_id = "UCXlJYhNoCb7LH9M15GO26yA" # Jade Lore
 
 #video_id = "wGEatMWM3oA" # from jonas
 #video_id = "sSOxPJD-VNo" # fropm JRE
@@ -27,15 +30,12 @@ from itertools import islice
 #    print(f"Video {video.video_id} from {video.published_at}:\n{video.title}\n")
 
 
-
-for subscr in islice(Subscription.get_hot(), 1):
+#for subscr in islice(Subscription.get_hot(), 3):
+for subscr in Subscription.get_hot():
     channel = subscr.channel
-    print(f"\n\n## {channel.title}\n")
-#    #for list in channel.playlists:
-#    #    print(list.title)
-    for video in islice(channel.remote_uploads(), 10000):
-        print(f"Video {video.video_id} from {video.published_at}:\n{video.title}\n")
-
+    print(f"## {channel.title} - {channel.channel_id}")
+    channel.mirror_uploads()
+    print("\n")
 
 
 #subscr_list = Subscription.get_hot()
@@ -47,14 +47,3 @@ for subscr in islice(Subscription.get_hot(), 1):
 #    print(list.title)
 
 print("done")
-
-
-#subscr = next(data)
-#pprint(subscr)
-
-#channel = subscr.channel
-#pprint(channel)
-
-#context = Context.get()
-#pprint(context.batch_time)
-#Channel.update(channel.channel_id)
