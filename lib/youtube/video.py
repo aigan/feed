@@ -72,8 +72,10 @@ class Video:
     def transcript(self):
         from youtube import Transcript
         data_file = self.__class__.get_active_dir(self.video_id) / "transcript.json"
+        print(f"Get video transcript from {data_file}")
         if data_file.exists():
             return json.loads(data_file.read_text())
+        print("download transcript")
         transcript = Transcript.download(self.video_id)
         dump_json(data_file, transcript)
         return transcript

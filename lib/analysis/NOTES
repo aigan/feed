@@ -1,0 +1,261 @@
+# Youtube
+
+## Prompt
+
+MISSING INFORMATION: Note when essential classification data is unavailable (e.g. game interest, series status, creator preference). Respond with MISSING INFORMATION: [brief summary] and skip recommendation unless priority conditions override.
+
+FETCH TRANSCRIPT: If metadata suggests possible relevance but is not enough to judge insight, novelty, or framing, respond with: `[FETCH TRANSCRIPT]`. Prioritize transcript for interviews, analysis, or commentary formats. Skip transcript if topic is narrow, repetitive, or the format implies low insight. Discard directly if metadata shows it's unlikely to be of interest.
+
+
+
+# Topic of interest DB
+
+Extract:
+* Named entities (people, games, companies, technologies, places, events)
+* Concepts (more descriptive)
+* Relationships (connections between entities)
+
+```
+Given the following video metadata; extract structured information in the following sections.
+
+Append a certainty tag to any row: 
+[?]  = somewhat uncertain but plausible  
+[??] = likely incorrect / weak guess  
+Leave blank if confident.  
+If there is not enough info for a specific section, leave it blank.
+
+FORMAT:
+Select one or more formats from the following list. Output them as a comma-separated list.
+ - interview: one‑on‑one Q&A with host and guest
+ - discussion: multi‑voice roundtable or panel
+ - monologue: single speaker addressing the audience
+ - presentation: structured talk or keynote with visuals/slides
+ - documentary: edited, fact‑driven narrative with multiple sources
+ - essay: scripted, argument‑driven analysis
+ - review: evaluative critique of a product or work
+ - reaction: creator’s real‑time or first‑view response to external media (faces, brief remarks)
+ - commentary: creator adds substantive discussion or analysis (pauses, explains, breaks down)
+ - embed: external media shown largely unaltered and central to the video
+ - letsplay: gameplay footage with live commentary
+ - news: report on current events or announcements
+ - tutorial: step‑by‑step instructional content
+ - vlog: personal or behind‑the‑scenes video log
+ - compilation: curated collection of clips or highlights
+ - livestream: real‑time broadcast, often interactive
+ - skit: short scripted fictional or comedic piece
+ - other: format that doesn’t fit or mixes types equally
+
+
+EPISODE:
+If a series, extract both the series title and episode number or name, if present. Otherwise, write none.
+
+SPEAKERS:
+Identify all speakers mentioned, including:
+ - Full name. Use metadata and common knowledge (e.g., resolve known handles to names).
+ - Roles: host, guest, narrator, interviewee, etc.
+ - Short description: Include affiliations, professional titles, or notable relationships.
+ - Format as `<full name>: <roles>, <description>` with one line per entry; no markdown.
+ - Each speaker must also appear under ENTITIES using the same full name.
+
+TIMESTAMPS:
+Extract all timestamps and their associated topics or segments
+ - Existing timestamps in HH:MM:ss format have been amended with the corresponding timestamp as offset in seconds from the start. For example `[ts 177] 2:57 Chapter title`. Extract all timestamps and chapter descriptions, using the `[ts <offset>]`.
+ - Format as `<offset>: <topic description>\n`
+ - For each list item under TIMESTAMPS, do not use markdown formatting symbols, but make sure that the offset is an integer and not in the `MM:ss` format.
+
+ENTITIES:
+List all named entities; real, fictional, or speculative. If mentioned in the input, include online handles, channel names, URLs, or other aliases in a comma-separated list inserted in the <aliases> position. Format each row with <canonical term> (<category>) <aliases>. Use these categories:
+- person: A named individual or sentient agent, including humans, characters, AI, animals, spirits, avatars, or mythical beings.
+- organization: Any named group, institution, company, movement, team, or faction.
+- product: A named item such as a game, film, book, food, service, device, or software.
+- workseries: A recurring or branded sequence of creative works or narratives, such as franchises, universes, or serialized shows.
+- technology: Any named method, system, tool, engine, programming language, library, or platform.
+- location: Any named place, including countries, cities, regions, virtual spaces, planets, or in-world environments.
+- date: Any specific point or span in time, including years, eras, relative phrases, or projected timelines.
+- event: Any occurrence or happening, such as launches, battles, releases, protests, ceremonies, or historical/cultural moments.
+If a named item does not clearly match any of the above categories, do not include it under ENTITIES — use the CONCEPTS section instead.
+
+CONCEPTS:
+List key ideas using keyword and description. The keyword should be a concise term, followed by a brief description explaining its context in this video. Do not include disclaimers, copyright notices, standard calls to action, or boilerplate metadata unless clearly framed as part of the video’s actual topic. Format each row with `<canonical term>: <description>`
+
+RELATIONSHIPS:
+List important connections between entities or concepts mentioned above, showing how they relate to each other. Format each row with two or more entities with `<entity 1> + <entity 2> + <entity 3>: <relationship description>`
+
+SOURCES:
+List each distinct external item the video cites, reacts to, summarizes, or is clearly based on  —  such as videos, events, books, news stories, posts, or products. Use only details found in the input. If a source is unnamed, supply a concise descriptive label. Where available, include identifying clues (speaker, quoted title, date, venue, or platform) to aid later retrieval, and merge duplicates that refer to the same material. If a source includes a URL, place it at the end of the line, space-separated. If no URL is given, output an empty string instead. Output one source per row, without markup.
+
+VALUE:
+Evaluate the video across four criteria (0–5 scale):
+
+* Insight
+  - Exceptional (5): Reveals underlying systems, root causes, or transformative mechanisms.
+  - Valuable (4): Offers structured reasoning or connects ideas meaningfully.
+  - Notable (3): Raises thoughtful points but lacks depth or system framing.
+  - Weak (2): Mostly descriptive with limited analysis or framing.
+  - Discard (1): Lists facts or opinions with no explanation or structure.
+
+* Novelty
+  - Exceptional (5): Presents rare angles, underreported stories, or original framings.
+  - Valuable (4): Covers newer or less saturated developments.
+  - Notable (3): Somewhat familiar, but includes minor fresh context or synthesis.
+  - Weak (2): Repetitive or derivative of common narratives.
+  - Discard (1): Predictable, recycled, or no new information at all.
+
+* Quality
+  - Exceptional (5): Thoughtful, evidence-based, balanced, and intellectually honest.
+  - Valuable (4): Clear logic with minor bias or simplification.
+  - Notable (3): Mixed reasoning; some overreach or omission.
+  - Weak (2): Uses emotional hooks, partisanship, or flawed logic.
+  - Discard (1): Manipulative, dishonest, or structurally incoherent.
+
+* Delivery
+  - Exceptional (5): High insight density and excellent production craft—engaging voice, smart editing, visual support, music, or atmosphere enhance clarity and impact.
+  - Valuable (4): Mostly well-paced or well-crafted; some standout elements in format or presentation.
+  - Notable (3): Competent but uneven—some distracting flaws or missed opportunities in format.
+  - Weak (2): Poor pacing or low production effort; distracting, unclear, or aesthetically flat.
+  - Discard (1): Visually or aurally unpleasant, incoherent, or unserious in tone vs. topic.
+
+
+Title: [Video Title]
+Description: [Video Description]
+```
+
+
+
+
+## Example
+
+Key: "Star Citizen"
+
+Labels: ["game", "systemic", "technology"]
+
+Context: "You are very interested in Star Citizen because of its ambition, systemic design, and focus on technological development. Prioritize content that explores game systems, technology, or development. Ignore general gameplay unless those aspects are covered."
+
+
+
+# Point system:
+
+Score | Label | Meaning
+5 | MUST SEE | Deeply aligned with your interests, rich in insight or novelty—rare and essential.
+4 | Very Interesting | Substantial value, strong perspective or signal—worth surfacing.
+3 | Mildly Interesting | Some relevance or curiosity, but doesn’t justify your attention.
+2 | Low Value | Surface-level, repetitive, or poorly framed.
+1 | Discard | No relevance, annoying, or anti-preference.
+
+
+# Companion
+
+If the video features a Followed Personality as themselves (e.g. speaking, interviewed, presenting), relax standard filters on novelty, insight, or length. Allow comfort viewing, relaxed standards, or parasocial value—especially when the creator’s tone, consistency, or presence is a reason you enjoy the content.
+
+# Humanities (Psychology, Culture, News)
+Evaluate the video across four criteria (0–5 scale):
+
+Insight: Does it reveal root causes, structural dynamics, or offer an integral/systemic perspective that relates to long-term change or design of better futures?
+
+Novelty: Is this a recent development that is not part of a repetitive or predictable pattern—either in the world or in how similar stories have been told over time? Does it cover stories, angles, or framings that are rare or missing from mainstream discourse or your recent content experience?
+
+Quality: Is it intellectually honest, avoids cheap partisanship, and encourages structural thinking or empathy?
+
+Delivery: Judge if the format is effective, engaging, and appropriate for the expected payoff. Penalize long content if it covers familiar or beginner topics, focuses on emotion or narrative without deep insight, or targets a general audience when high-level framing is preferred. Reward long-form only if it delivers systemic depth, high knowledge level, or strong conceptual value.
+
+Content length sensitivity: For videos over 30 minutes, reduce score unless the content is complex, high-level, or presents new frameworks. Favor short videos when the topic is introductory, familiar, or emotionally driven. Discard long content with low insight density or redundant framing.
+
+Final Score (avg of 4 categories).
+
+
+
+## Channel rules
+
+Each subscription may include rules defining which speakers, topics, formats, or tones are of interest. These override generic recommendations.
+
+
+# Games
+* backlog
+* technology
+* systemic
+* culture
+* engagement
+* letsplay
+
+## Letsplay
+
+Series I folow.
+Games I like
+Games on my watchlist
+
+## Watchlist
+
+* Star Citizen
+
+## Culture
+
+The video comments on or reflects aspects of gaming culture—like player behavior, dev practices, release timing drama, critical reception, genre trends, community dynamics, or broader industry context.
+
+## Technology
+
+The video discusses (or implies) something notable about game technology, such as engine use, simulation systems, AI behavior, technical innovation, or even limitations and workarounds—either in the game itself or the dev’s approach.
+
+## Systemic
+Does the video provides insight into systemic design or systems thinking?
+
+A systemic game features interactions governed by the intrinsic properties of objects and the environment, ensuring consistent, dynamic responses from all gameplay mechanics and interactions throughout,  emphasizing emergent gameplay, allowing for multiple solutions beyond designer-intended paths.
+
+A systemic story game encodes story structure and narrative beats into interactive systems, enabling the story to dynamically adapt to the player’s actions within a consistent world, beyond fixed branches.
+
+## Engagement
+
+Does the video say anything insightful about how games motivate, immerse, or retain players? Especially through Volition (choice with meaning), Autonomy (freedom to act), Agency (impact), and Immersion (absorption).
+
+## Backlog
+
+* Single-player Story-rich adventure with relationships and optional romance;
+* Beautiful, immersive 3D environments;
+* Low time pressure, turn-based or stealth/escape options. no death to progress
+* Non-punishing trial-and-error;
+* Peaceful or empathetic conflict resolution;
+* Player creativity in problem-solving;
+* Philosophically interesting worlds.
+
+Favourite games: Witcher 3, Horizon Zero Dawn, The Last of Us, Half-Life 2, The Walking Dead, Life is Strange, XCOM Enemy within, XCOM 2 War of the chosen, Cyberpunk 2077, The Pathless, Journey, Portal, Blackwell series, Prison Architect, Dying Light, Death Stranding, Wasteland 3, Uncharted 4, Firewatch, Disco Elysium
+
+
+
+---
+
+
+Adventure games with companions or people you develop relationships with including potential love interests. Promise of a happy ending. Beautiful environment. Games with minimal time pressure, either with turn-based combat, or with the ability to hide as long as you want to scout out the situation and the ability to always run and hide if things gets chaotic. Prefer games where you are not expected to learn by dying, and can try and learn things without punishment. Love 3D immersive exploration gameplay. Like ability to find my own solution to solve problems. I prefer to solve conflicts peacefully, being kind and helpful, even to so called enemies. Like worlds with fascinating philosophical concepts.
+
+
+
+
+Ok. So the youtube algorithm dont understand why I watch certain things and I want something that gets me. :)
+
+So for games there are a couple of things:
+
+* Technological development, so that includes much more than just games
+
+* Specifically my main interest is "Systemic story games" and thats a big reason why I subscribe to channels, since I want to see what developments has been done in systemic story, and systemic games in general including simulation games.
+
+* General psychology interest in engagement, in what is it that makes people want to play (or do anything)
+
+* High level gaming culture news
+
+* Also want to look out for things I want to play. And for this I would need to detail more the things I actually look for in games.
+
+
+# Humanities (Psychology, Culture, News)
+Evaluate the video across four criteria (0–5 scale):
+
+Insight: Does it reveal root causes, structural dynamics, or offer an integral/systemic perspective that relates to long-term change or design of better futures?
+
+Novelty: Is this a recent development that is not part of a repetitive or predictable pattern—either in the world or in how similar stories have been told over time? Does it cover stories, angles, or framings that are rare or missing from mainstream discourse or your recent content experience?
+
+Quality: Is it intellectually honest, avoids cheap partisanship, and encourages structural thinking or empathy?
+
+Delivery: Judge if the format is effective, engaging, and appropriate for the expected payoff. Penalize long content if it covers familiar or beginner topics, focuses on emotion or narrative without deep insight, or targets a general audience when high-level framing is preferred. Reward long-form only if it delivers systemic depth, high knowledge level, or strong conceptual value.
+
+Content length sensitivity: For videos over 30 minutes, reduce score unless the content is complex, high-level, or presents new frameworks. Favor short videos when the topic is introductory, familiar, or emotionally driven. Discard long content with low insight density or redundant framing.
+
+Final Score (avg of 4 categories).
+
+
