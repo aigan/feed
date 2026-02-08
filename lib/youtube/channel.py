@@ -336,7 +336,6 @@ class Channel:
 
         if not diff: return
 
-        # TODO: crashes with KeyError if old is missing 'channel_id' (e.g. corrupted/migrated from empty file)
         id = old['channel_id']
         archive_file = cls.get_archive_dir(id) / "channel.json"
         if archive_file.exists(): return

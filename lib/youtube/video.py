@@ -101,9 +101,6 @@ class Video:
 
         if data_file.exists():
             data = json.loads(data_file.read_text())
-            # TODO: first_seen is never set in this branch — if the existing file
-            # lacks first_seen (e.g. partial write), it stays missing permanently.
-
             exclude_paths = [
                 "root['first_seen']",
                 "root['last_updated']",
@@ -176,7 +173,6 @@ class Video:
 
     @classmethod
     def archive(cls, data):
-        # TODO: crashes with KeyError if data is missing 'video_id' (e.g. corrupted file)
         video_id = data['video_id']
         next_version = cls.latest_version(video_id) + 1
         archive_dir = cls.get_archive_dir(video_id)
