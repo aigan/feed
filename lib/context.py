@@ -15,3 +15,7 @@ class Context:
         if cls._instance is None:
             cls._instance = Context()
         return cls._instance
+
+    @classmethod
+    def reset(cls):
+        cls._instance = None

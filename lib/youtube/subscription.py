@@ -1,16 +1,13 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from config import ROOT
+import config
 from typing import Generator
 from datetime import datetime
 import json
 from context import Context
 from util import to_obj, from_obj, dump_json
 from pprint import pprint
-
-data_dir = ROOT / "data/youtube/subscriptions/active"
-archive_dir = ROOT / "data/youtube/subscriptions/archive"
 
 @dataclass
 class Subscription:
@@ -30,8 +27,16 @@ class Subscription:
         return Channel.get(self.channel_id)
 
     @classmethod
+    def data_dir(cls):
+        return config.DATA_DIR / "youtube/subscriptions/active"
+
+    @classmethod
+    def archive_dir(cls):
+        return config.DATA_DIR / "youtube/subscriptions/archive"
+
+    @classmethod
     def get_all(cls) -> Generator[Subscription, None, None]:
-        for path in data_dir.glob('*.json'):
+        for path in cls.data_dir().glob('*.json'):
             data = json.loads(path.read_text())
             data['first_seen'] = datetime.fromisoformat(data['first_seen'])
             data['last_updated'] = datetime.fromisoformat(data['last_updated'])
@@ -56,7 +61,7 @@ class Subscription:
     @classmethod
     def update_from_data(cls, item) -> dict:
         id = item.snippet.resourceId.channelId
-        output_file = data_dir / f"{id}.json"
+        output_file = cls.data_dir() / f"{id}.json"
         batch_time = Context.get().batch_time
 
         new_data = {
@@ -100,7 +105,7 @@ class Subscription:
             request = youtube.subscriptions().list_next(request, response)
             #request = False
 
-        existing_files = list(data_dir.glob('*.json'))
+        existing_files = list(cls.data_dir().glob('*.json'))
         existing_ids = {f.stem for f in existing_files}
         unsubscribed = existing_ids - set(channel_ids)
         for channel_id in unsubscribed:
@@ -112,7 +117,7 @@ class Subscription:
         batch_time = Context.get().batch_time
         year = batch_time.year
 
-        src_file = data_dir / f"{channel_id}.json"
+        src_file = cls.data_dir() / f"{channel_id}.json"
         if not src_file.exists():
             print(f"Warning: No active file for {channel_id}")
             return
@@ -120,7 +125,7 @@ class Subscription:
         data = json.loads(src_file.read_text())
         data['unsubscribed_at'] = batch_time.isoformat()
 
-        year_dir = archive_dir / str(year)
+        year_dir = cls.archive_dir() / str(year)
         dest_file = year_dir / f"{channel_id}.json"
         dump_json(dest_file, data)
         src_file.unlink()

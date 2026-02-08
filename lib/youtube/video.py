@@ -5,7 +5,7 @@ from util import to_obj, from_obj, dump_json, convert_fields, to_dict
 from pprint import pprint
 from datetime import datetime
 from context import Context
-from config import ROOT
+import config
 import json
 
 @dataclass
@@ -100,6 +100,8 @@ class Video:
 
         if data_file.exists():
             data = json.loads(data_file.read_text())
+            # TODO: first_seen is never set in this branch — if the existing file
+            # lacks first_seen (e.g. partial write), it stays missing permanently.
 
             exclude_paths = [
                 "root['first_seen']",
@@ -173,6 +175,7 @@ class Video:
 
     @classmethod
     def archive(cls, data):
+        # TODO: crashes with KeyError if data is missing 'video_id' (e.g. corrupted file)
         video_id = data['video_id']
         next_version = cls.latest_version(video_id) + 1
         archive_dir = cls.get_archive_dir(video_id)
@@ -181,11 +184,11 @@ class Video:
 
     @classmethod
     def get_active_dir(cls, video_id):
-        return ROOT / "data/youtube/videos/active" / video_id[:2] / video_id
+        return config.DATA_DIR / "youtube/videos/active" / video_id[:2] / video_id
 
     @classmethod
     def get_archive_dir(cls, video_id):
-        return ROOT / "data/youtube/videos/archive" / video_id[:2] / video_id
+        return config.DATA_DIR / "youtube/videos/archive" / video_id[:2] / video_id
 
     @classmethod
     def get_processed_dir(cls, video_id):

@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from config import ROOT
+import config
 from pprint import pprint
 from datetime import datetime, timedelta
 import json
@@ -336,6 +336,7 @@ class Channel:
 
         if not diff: return
 
+        # TODO: crashes with KeyError if old is missing 'channel_id' (e.g. corrupted/migrated from empty file)
         id = old['channel_id']
         archive_file = cls.get_archive_dir(id) / "channel.json"
         if archive_file.exists(): return
@@ -343,16 +344,14 @@ class Channel:
 
     @classmethod
     def get_active_dir(cls, channel_id) -> Path:
-        data_dir = ROOT / "data/youtube/channels/active"
-        return data_dir / channel_id
+        return config.DATA_DIR / "youtube/channels/active" / channel_id
 
     @classmethod
     def get_archive_dir(cls, channel_id) -> Path:
         batch_time = Context.get().batch_time
         year = batch_time.year
         week_number = batch_time.isocalendar()[1]
-        archive_dir = ROOT / "data/youtube/channels/archive"
-        return archive_dir / str(year) / f"week-{week_number:02}" / channel_id
+        return config.DATA_DIR / "youtube/channels/archive" / str(year) / f"week-{week_number:02}" / channel_id
 
     def get_active_uploads_file(self, year) -> Path:
         return self.get_active_dir(self.channel_id) / f"uploads/{str(year)}.json"

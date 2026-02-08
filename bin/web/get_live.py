@@ -56,7 +56,8 @@ with sync_playwright() as p:
         
         # Extract some basic information
         title = page.title()
-        heading = page.locator("h1").inner_text()
+        h = page.locator("h1, h2").first
+        heading = h.inner_text() if h.count() else "(no heading)"
         
         print(f"Page title: {title}")
         print(f"Main heading: {heading}")
@@ -72,7 +73,7 @@ with sync_playwright() as p:
         print(f"Error: {str(e)}")
         # Try to dump HTML if there's an error
         try:
-            dump_html(page, "error_dump.html")
+            dump_html(page, "var/error_dump.html")
         except:
             print("Could not dump HTML after error")
     

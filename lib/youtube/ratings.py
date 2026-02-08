@@ -1,7 +1,7 @@
 from youtube import get_youtube_client
 from pprint import pprint
 from datetime import datetime, timezone
-from config import ROOT
+import config
 from pathlib import Path
 import json
 from util import to_obj, from_obj, dump_json
@@ -9,8 +9,8 @@ from util import to_obj, from_obj, dump_json
 class Rating:
     def __init__(self, rating_type: str, batch_time: datetime):
         self.batch_time = batch_time
-        self.output_dir = ROOT / f"data/youtube/{rating_type}s/active"
-        self.log_file = ROOT / f"data/youtube/{rating_type}s/{rating_type}s.log"
+        self.output_dir = config.DATA_DIR / f"youtube/{rating_type}s/active"
+        self.log_file = config.DATA_DIR / f"youtube/{rating_type}s/{rating_type}s.log"
         self.rating_type = rating_type
 
     def update(self):
@@ -95,12 +95,14 @@ class Rating:
             timestamp = line.split()[0]
             #print(f"Compare {timestamp} <= {oldest_timestamp} from line {line}")
             if timestamp <= oldest_timestamp:
+                # TODO: when i==0, lines[-0:] returns ALL lines instead of empty.
+                # This over-reports log entries and may archive ratings incorrectly.
                 return lines[-i:]
         return lines  # If no older timestamp found, return all lines
 
 
     def archive_undone_ratings(self, unrated_ids):
-        archive_base = ROOT / f"data/youtube/{self.rating_type}s/archive"
+        archive_base = config.DATA_DIR / f"youtube/{self.rating_type}s/archive"
         year = self.batch_time.year
         year_dir = archive_base / str(year)
 

@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+See [STYLE.md](STYLE.md) for coding style guide and post-implementation checklist.
+
 ## Project Overview
 
 YouTube data aggregation and analysis system. Tracks subscriptions, mirrors channel uploads, archives video metadata with version history, downloads transcripts, and runs LLM-based content analysis via OpenAI/LangChain.

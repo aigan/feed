@@ -1,0 +1,29 @@
+[project]
+name = "feed"
+version = "0.1.0"
+description = "YouTube data aggregation and analysis system"
+requires-python = ">=3.13"
+dependencies = [
+    "deepdiff",
+    "google-api-python-client",
+    "google-auth-oauthlib",
+    "isodate",
+    "langchain-core",
+    "langchain-openai",
+    "youtube-transcript-api",
+]
+
+[project.optional-dependencies]
+web = [
+    "browser-cookie3",
+    "playwright",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["lib"]
