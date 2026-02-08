@@ -3,14 +3,13 @@ from datetime import datetime
 from typing import Optional
 
 from util import (
-    SafeNamespace,
     NoneObject,
-    to_obj,
-    from_obj,
+    SafeNamespace,
     convert_fields,
+    from_obj,
+    to_obj,
     to_serializable,
 )
-
 
 # --- SafeNamespace / NoneObject ---
 

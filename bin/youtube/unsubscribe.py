@@ -38,9 +38,8 @@ subscription_id = data['subscription_id']
 
 
 print(f"Unsubscribe {subscription_id}")
-unsubscribe(subscription_id) 
+unsubscribe(subscription_id)
 
 # Todo: append status info to subscription record for inaccessible channels
 
 #pprint(data)
-

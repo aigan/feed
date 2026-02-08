@@ -35,5 +35,4 @@ print("\n" + summary['text'] + "\n")
 #result = YTTranscriptFormatter.get(video)
 #print(result)
 
-print("DONE");
-
+print("DONE")

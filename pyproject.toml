@@ -22,8 +22,20 @@ web = [
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
+    "ruff>=0.9",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["lib"]
+
+[tool.ruff]
+target-version = "py313"
+src = ["lib"]
+
+[tool.ruff.lint]
+select = ["F", "E", "W", "I"]
+ignore = ["E402", "E501", "E701", "E711", "E722", "E741", "F401", "F821", "F841", "W291", "W293"]
+
+[tool.ruff.lint.isort]
+known-local-folder = ["youtube", "analysis", "config", "context", "util"]

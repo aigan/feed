@@ -8,9 +8,9 @@ def get_youtube_client():
     import google_auth_oauthlib.flow
     import googleapiclient.discovery
     import googleapiclient.errors
+    from google.auth.exceptions import RefreshError
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
-    from google.auth.exceptions import RefreshError
 
     os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
@@ -34,7 +34,7 @@ def get_youtube_client():
         except RefreshError:
             if os.path.exists(TOKEN_FILE):
                 os.remove(TOKEN_FILE)
-            
+
             flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
                 client_secrets_file, SCOPES
             )

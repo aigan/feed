@@ -1,12 +1,10 @@
 import json
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import patch
 
-from youtube.subscription import Subscription
-from util import to_obj
+import pytest
 from conftest import BATCH_TIME
 
+from util import to_obj
+from youtube.subscription import Subscription
 
 # ---------------------------------------------------------------------------
 # Subscription.update_from_data  — file-DB integration tests

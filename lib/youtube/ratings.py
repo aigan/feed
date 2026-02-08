@@ -1,10 +1,11 @@
-from youtube import get_youtube_client
-from pprint import pprint
-from datetime import datetime, timezone
-import config
-from pathlib import Path
 import json
-from util import to_obj, from_obj, dump_json
+from datetime import datetime
+from pprint import pprint
+
+import config
+from util import dump_json, from_obj, to_obj
+from youtube import get_youtube_client
+
 
 class Rating:
     def __init__(self, rating_type: str, batch_time: datetime):
@@ -18,7 +19,7 @@ class Rating:
         #print("Video ids");
         #pprint(video_ids)
 
-        oldest_rating_id = video_ids[-1];
+        oldest_rating_id = video_ids[-1]
         oldest_data_file =  self.output_dir / f"{oldest_rating_id}.json"
         oldest_data = json.loads(oldest_data_file.read_text())
         oldest_timestamp = oldest_data['first_seen']
@@ -65,7 +66,7 @@ class Rating:
                 output_file = self.output_dir / f"{id}.json"
 
                 if output_file.exists():
-                    print(f"Skipped {id}");
+                    print(f"Skipped {id}")
                     found_existing = True
                     continue
 
@@ -75,7 +76,7 @@ class Rating:
                 }
 
                 dump_json(output_file, data)
-                print(f"Wrote {id}");
+                print(f"Wrote {id}")
 
             if found_existing:
                 return video_ids
@@ -84,7 +85,7 @@ class Rating:
             request = youtube.videos().list_next(request, response)
             #request = False
 
-        return video_ids;
+        return video_ids
 
 
     def find_log_tail(self, oldest_timestamp, offset):

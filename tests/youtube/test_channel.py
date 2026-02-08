@@ -1,11 +1,11 @@
 import json
-import pytest
 from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from youtube.channel import Channel, PlaylistInaccessibleError, SCHEMA_VERSION
+import pytest
 from conftest import BATCH_TIME
 
+from youtube.channel import SCHEMA_VERSION, Channel, PlaylistInaccessibleError
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -373,7 +373,6 @@ class TestChannelRetrieveErrors:
 
 class TestChannelArchiveEdgeCases:
     def test_archive_missing_channel_id_raises(self, ctx):
-        from deepdiff import DeepDiff
         with pytest.raises(KeyError):
             Channel.archive({}, {"title": "new"})
 

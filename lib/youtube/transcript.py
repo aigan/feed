@@ -1,6 +1,8 @@
-from youtube_transcript_api import YouTubeTranscriptApi
 from datetime import datetime
 from pprint import pprint
+
+from youtube_transcript_api import YouTubeTranscriptApi
+
 
 class Transcript:
     """Represents a Youtube transcript"""
@@ -44,7 +46,7 @@ class Transcript:
 
     @classmethod
     def download(cls, video_id):
-        print("Download transcript");
+        print("Download transcript")
         transcript = cls.get_best(video_id)
         if transcript == None:
             return None

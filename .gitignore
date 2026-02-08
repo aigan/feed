@@ -1,7 +1,13 @@
+.claude/settings.local.json
 .envrc
 .venv
+old-venv
 .ipynb_checkpoints
+.pytest_cache
+.ruff_cache
 auth
 var
 __pycache__
 data
+requirements.txt
+uv.lock

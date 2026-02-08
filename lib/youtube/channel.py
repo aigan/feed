@@ -1,13 +1,14 @@
 from __future__ import annotations
+
+import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pprint import pprint
 from typing import Optional
 
 import config
-from pprint import pprint
-from datetime import datetime, timedelta
-import json
-from util import to_obj, from_obj, dump_json, convert_fields, to_dict, to_serializable
 from context import Context
+from util import convert_fields, dump_json, to_dict, to_obj, to_serializable
 
 SCHEMA_VERSION = 2
 
@@ -52,7 +53,7 @@ class Channel:
     @property
     def local_uploads_count(self) -> int:
         uploads_dir = self.get_active_dir(self.channel_id) / "uploads"
-        count = 0;
+        count = 0
         for path in uploads_dir.glob('*.json'):
             data = json.loads(path.read_text())
             count += len(data)
@@ -121,9 +122,9 @@ class Channel:
                 self.update_uploads_from_data(buffer_data)
 
     def retrieve_uploads(self) -> Generator[dict, None, None]:
-        from youtube import get_youtube_client, HttpError
+        from youtube import HttpError, get_youtube_client
         if self.uploads_count == 0:
-            print(f"No uploads to retrieve")
+            print("No uploads to retrieve")
             return
 
         youtube = get_youtube_client()
@@ -298,7 +299,6 @@ class Channel:
 
     @classmethod
     def update(cls, channel_id) -> dict:
-        from deepdiff import DeepDiff
 
         print("Update channel")
         batch_time = Context.get().batch_time

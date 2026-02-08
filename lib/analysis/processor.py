@@ -10,9 +10,9 @@ class Processor:
             model: str = 'gpt-4.1-mini',
             temperature: float = 0.8, # 0 to 2
             ) -> str:
-        from langchain_openai import ChatOpenAI
-        from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import StrOutputParser
+        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_openai import ChatOpenAI
 
         prompt_template = ChatPromptTemplate.from_template(prompt)
         llm = ChatOpenAI(model=model, temperature=temperature)
@@ -25,4 +25,3 @@ class Processor:
         template = ChatPromptTemplate.from_template(prompt)
         prompt_value = template.format_prompt(**(params or {}))
         return prompt_value.to_string()
-

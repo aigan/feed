@@ -4,6 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 See [STYLE.md](STYLE.md) for coding style guide and post-implementation checklist.
 
+## Interaction Rules
+
+- A question is not a request. When the user asks "why is X?" or "should we do Y?", answer the question — do not take action. Only make changes when explicitly asked.
+
 ## Project Overview
 
 YouTube data aggregation and analysis system. Tracks subscriptions, mirrors channel uploads, archives video metadata with version history, downloads transcripts, and runs LLM-based content analysis via OpenAI/LangChain.

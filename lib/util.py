@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 import json
+from types import SimpleNamespace
+
 
 class SafeNamespace(SimpleNamespace):
     def __getattr__(self, name):
@@ -62,6 +63,7 @@ def safe_convert(converter_func):
     return wrapper
 
 from datetime import datetime
+
 TYPE_CONVERTERS = {
     datetime: safe_convert(datetime.fromisoformat),
     int: safe_convert(int),
@@ -70,7 +72,7 @@ TYPE_CONVERTERS = {
 }
 
 def convert_fields(cls, data: Dict[str, Any]) -> Dict[str, Any]:
-    from typing import Any, Dict, Callable, get_type_hints, get_origin, get_args, Optional, Union
+    from typing import Any, Callable, Dict, Optional, Union, get_args, get_origin, get_type_hints  # noqa: I001
     """
     Convert fields in data according to their types in the class.
     Handles both direct types and Optional[Type] annotations.

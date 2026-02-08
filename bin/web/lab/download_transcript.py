@@ -1,7 +1,9 @@
 #!/bin/env python
-from langchain_community.document_loaders.youtube import YoutubeLoader
-from langchain.docstore.document import Document
 from pprint import pprint
+
+from langchain.docstore.document import Document
+from langchain_community.document_loaders.youtube import YoutubeLoader
+
 
 def patched_load(self) -> list[Document]:
     pprint(self)

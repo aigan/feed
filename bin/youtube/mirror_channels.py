@@ -1,8 +1,8 @@
 #!/bin/env python
-from youtube import Channel, Subscription
-from pprint import pprint
 from itertools import islice
+
 from context import Context
+from youtube import Subscription
 
 batch_time = Context.get().batch_time
 

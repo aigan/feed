@@ -1,6 +1,5 @@
 from analysis.yt_transcript_formatter import YTTranscriptFormatter
 
-
 # ---------------------------------------------------------------------------
 # merge_transcript_chunks
 # ---------------------------------------------------------------------------

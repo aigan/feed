@@ -5,9 +5,7 @@ Use this document as a checklist after implementation to ensure code quality.
 ## Quick Reference - Common Mistakes to Avoid
 
 **Semicolons**: ✓ `count = 0` • ✗ `count = 0;`
-**Dead code**: ✓ Delete unused code • ✗ Comment it out (`#pprint(data)`)
 **Imports**: ✓ Remove unused imports • ✗ Leave `pprint` imported for future debugging
-**Paths**: ✓ `config.DATA_DIR / 'videos'` • ✗ `os.path.join(data_dir, 'videos')`
 **Guards**: ✓ Let it crash if it's a bug • ✗ `if data: ...` when data should always exist
 **Quotes**: ✓ Single quotes `'hello'` • ✗ Double quotes `"hello"` (except when string contains `'`)
 
@@ -36,7 +34,6 @@ This is a personal data pipeline, not a library. Optimize for readability and ea
 - ✓ Single quotes for strings (double quotes when string contains `'`)
 - ✓ No semicolons
 - ✓ No trailing whitespace
-- ✓ No commented-out code left behind — delete it, git has history
 - ✓ Blank line between top-level definitions
 - ✓ No blank lines at end of file
 
@@ -88,7 +85,6 @@ class Video:
 
 - ✓ `@dataclass` for domain models (Video, Channel, Subscription, etc.)
 - ✓ `SafeNamespace` / `to_obj()` for wrapping API responses (dot-access, missing fields return falsy `NoneObject`)
-- ✓ `pathlib.Path` always — never `os.path`
 - ✓ `json.loads()` / `dump_json()` for JSON I/O
 - ✓ `convert_fields(cls, data)` to coerce dict values to match dataclass field types
 - ✓ `to_serializable()` to convert dataclass instances to JSON-safe dicts
@@ -132,7 +128,6 @@ class Video:
 - ✓ Comment "why", not "what"
 - ✓ TODO comments for known issues: `# TODO: handle edge case X`
 - ✗ No docstrings unless genuinely needed for complex logic
-- ✗ No commented-out debug prints — delete them
 
 ## Error Handling
 
@@ -146,12 +141,10 @@ class Video:
 ## Anti-Patterns
 
 - ✗ Stray semicolons (`count = 0;`)
-- ✗ Commented-out debug code (`#pprint(data)`)
 - ✗ Deep nesting (> 3 levels) — extract functions instead
 - ✗ Unused imports left behind
 - ✗ Premature abstraction — don't create helpers for one-time operations
 - ✗ Defensive guards for impossible states — let bugs crash visibly
-- ✗ `os.path` when `pathlib` works
 - ✗ Magic strings/numbers without context — use named constants or comments
 - ✗ Overly broad `except Exception` — catch specific errors
 
@@ -170,13 +163,11 @@ After implementing a feature, verify:
 
 3. **Style**
    - [ ] No semicolons
-   - [ ] No commented-out code
    - [ ] No unused imports
    - [ ] Single quotes for strings
    - [ ] Imports properly grouped
 
 4. **Architecture**
    - [ ] Follows existing patterns (dataclass models, classmethod factories)
-   - [ ] Uses `pathlib.Path` for file operations
    - [ ] Uses `SafeNamespace` / `to_obj()` for API data
    - [ ] Consistent with neighboring code

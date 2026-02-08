@@ -1,12 +1,13 @@
-from dataclasses import dataclass, fields
+import json
+from dataclasses import dataclass
+from datetime import datetime
+from pprint import pprint
 from typing import Optional
 
-from util import to_obj, from_obj, dump_json, convert_fields, to_dict
-from pprint import pprint
-from datetime import datetime
-from context import Context
 import config
-import json
+from context import Context
+from util import convert_fields, dump_json, to_dict, to_obj
+
 
 @dataclass
 class Video:

@@ -1,11 +1,11 @@
 import json
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
+from datetime import datetime
+from unittest.mock import MagicMock, patch
 
-from youtube.video import Video
+import pytest
 from conftest import BATCH_TIME
 
+from youtube.video import Video
 
 # ---------------------------------------------------------------------------
 # Helpers

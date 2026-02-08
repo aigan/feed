@@ -1,13 +1,15 @@
 from __future__ import annotations
-from dataclasses import dataclass, fields
 
-from util import to_obj, from_obj, dump_json
+import json
+from dataclasses import dataclass, fields
+from datetime import datetime
+from pathlib import Path
 from pprint import pprint
 from typing import Generator
+
 from context import Context
-from pathlib import Path
-from datetime import datetime
-import json
+from util import dump_json, from_obj, to_obj
+
 
 @dataclass
 class Playlist:
@@ -33,19 +35,19 @@ class Playlist:
             itr = cls.local_for_channel(channel_id)
         else:
             itr = cls.remote_for_channel(channel_id)
-            
+
         for data in itr:
             for field in fields(cls):
                 if field.name in data and field.type == datetime:
                     data[field.name] = datetime.fromisoformat(data[field.name])
             yield cls(**data)
-            
+
     @classmethod
     def local_for_channel(cls, channel_id) -> Generator[dict, None, None]:
         data_dir = cls.get_active_dir(channel_id)
         for path in data_dir.glob('*.json'):
             yield json.loads(path.read_text())
-            
+
     @classmethod
     def remote_for_channel(cls, channel_id) -> Generator[dict, None, None]:
         data_dir = cls.get_active_dir(channel_id)
@@ -136,7 +138,7 @@ class Playlist:
             for item in to_obj(response['items']):
                 yield item
             request = youtube.playlists().list_next(request, response)
-    
+
     @classmethod
     def retrieve_playlist_items(cls, playlist_id, etag=None):
         from youtube import get_youtube_client
@@ -157,7 +159,7 @@ class Playlist:
         video_ids = []
         for item in first_response['items']:
             video_ids.append(item['contentDetails']['videoId'])
-        
+
         request = youtube.playlistItems().list_next(request, first_response)
         while request:
             response = request.execute()
@@ -218,7 +220,7 @@ class Playlist:
         result.extend(new[i_new:])
 
         return list(dict.fromkeys(result)) # Remove duplicates
-            
+
     @classmethod
     def get_active_dir(cls, channel_id) -> Path:
         from youtube import Channel
@@ -228,5 +230,3 @@ class Playlist:
     def get_archive_dir(cls, channel_id) -> Path:
         from youtube import Channel
         return Channel.get_archive_dir(channel_id) / "playlists"
-
-    

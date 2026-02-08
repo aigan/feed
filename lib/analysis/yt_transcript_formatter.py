@@ -1,7 +1,8 @@
-from context import Context
 from pprint import pprint
 from typing import List
+
 from analysis import Processor
+
 
 class YTTranscriptFormatter(Processor):
     PROMP_VERSION = 1
@@ -52,7 +53,7 @@ class YTTranscriptFormatter(Processor):
     def is_last_chunk(cls, transcript, chunk_id):
         next_chunk_offset = (chunk_id + 1) * cls.CHUNK_SIZE
         return next_chunk_offset >= len(transcript['segments'])
-    
+
     @classmethod
     def get_chunk(cls, video, transcript, chunk_id):
         chunk_file = cls.get_transcript_chunk_dir(video.video_id) / f'{chunk_id:03}.txt'
@@ -78,9 +79,9 @@ Insert a chapter heading when a clear new topic or theme begins. Only insert a h
 Format chapter headings using a line starting with `## ` followed by the heading text.
 
 Each paragraph must start with the timestamp (an integer in seconds), then a colon and a space, then the text. Do not use markdown or any extra commentary or tags.
-Example:  
+Example:
 123: Welcome to this new video.
-        
+
 {extra_instructions}
 
 Transcript chunk:
@@ -340,7 +341,7 @@ Transcript chunk:
         headings_file = Video.get_processed_dir(video.video_id) / "headings.txt"
         #pprint(cls.merge_headings(video, transcript_text))
 
-        headings_text = "";
+        headings_text = ""
         for offset, source, text in cls.merge_headings(video, transcript_text):
             headings_text += f"{offset} {source}: {text}\n"
 
@@ -348,7 +349,7 @@ Transcript chunk:
         if (len(headings_text) == 0):
             headings_file.write_text("")
             print("[No headings]")
-            return "";
+            return ""
 
         prompt =  """
 Process the following time‑sorted lines, each in the form "<seconds> <source>: <title>", into a clean Table of Contents.

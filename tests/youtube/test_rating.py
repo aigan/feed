@@ -1,10 +1,9 @@
 import json
-import pytest
-from datetime import datetime, timezone
 
-from youtube.ratings import Rating
+import pytest
 from conftest import BATCH_TIME
 
+from youtube.ratings import Rating
 
 # ---------------------------------------------------------------------------
 # Rating.archive_undone_ratings  — file-DB integration tests

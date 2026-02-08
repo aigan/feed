@@ -1,13 +1,14 @@
 from __future__ import annotations
+
+import json
 from dataclasses import dataclass
+from datetime import datetime
+from typing import Generator
 
 import config
-from typing import Generator
-from datetime import datetime
-import json
 from context import Context
-from util import to_obj, from_obj, dump_json
-from pprint import pprint
+from util import dump_json, to_obj
+
 
 @dataclass
 class Subscription:
@@ -20,7 +21,7 @@ class Subscription:
     new_item_count: int
     total_item_count: int
     title: str
-    
+
     @property
     def channel(self) -> Channel:
         from youtube import Channel

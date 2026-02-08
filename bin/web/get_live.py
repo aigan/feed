@@ -2,8 +2,9 @@
 
 import os
 import time
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
+
 from playwright.sync_api import sync_playwright
 
 # Get environment variables (from direnv)
@@ -21,14 +22,14 @@ def dump_html(page, filename=None):
     if filename is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"debug_dump_{timestamp}.html"
-    
+
     html_content = page.content()
     with open(filename, "w", encoding="utf-8") as f:
         f.write(html_content)
     print(f"HTML dumped to {filename}")
 
 page_url = "https://jonas.liljegren.org"
-    
+
 # Start Playwright
 with sync_playwright() as p:
     try:
@@ -39,36 +40,36 @@ with sync_playwright() as p:
             slow_mo=100,     # Slow down actions for visibility
             args=["--profile-directory=" + chrome_profile]
         )
-        
+
         # Create a new page
         page = browser_context.new_page()
-        
+
         # Navigate to a simple website
         print("Navigating to page...")
         page.goto(page_url)
-        
+
         # Wait to ensure page is loaded
         page.wait_for_load_state("networkidle")
-        
+
         # Take a screenshot
         page.screenshot(path="var/example_screenshot.png")
         print("Screenshot saved as example_screenshot.png")
-        
+
         # Extract some basic information
         title = page.title()
         h = page.locator("h1, h2").first
         heading = h.inner_text() if h.count() else "(no heading)"
-        
+
         print(f"Page title: {title}")
         print(f"Main heading: {heading}")
-        
+
         # Dump HTML for debugging
         dump_html(page, "var/example_dump.html")
-        
+
         # Wait a bit to see the browser
         print("Waiting 5 seconds before closing...")
         time.sleep(5)
-        
+
     except Exception as e:
         print(f"Error: {str(e)}")
         # Try to dump HTML if there's an error
@@ -76,7 +77,7 @@ with sync_playwright() as p:
             dump_html(page, "var/error_dump.html")
         except:
             print("Could not dump HTML after error")
-    
+
     finally:
         # Close the browser
         if 'browser_context' in locals():

@@ -1,14 +1,18 @@
-from context import Context
+
 from pprint import pprint
+
 from analysis import Processor
+from context import Context
+
 
 class YTAPIVideoExtractor(Processor):
     PROMPT_VERSION = 1
 
     @classmethod
     def get(cls, video):
-        from youtube import Video
         import json
+
+        from youtube import Video
 
         video_id = video.video_id
         result_file = Video.get_processed_dir(video_id) / "ytapi_extracted.json"
@@ -21,8 +25,8 @@ class YTAPIVideoExtractor(Processor):
 
     @classmethod
     def run(cls, video):
-        from youtube import Video, Transcript
         from util import dump_json
+        from youtube import Transcript, Video
 
         video_id = video.video_id
         result_file = Video.get_processed_dir(video_id) / "ytapi_extracted.json"
@@ -103,8 +107,8 @@ List each distinct external item the video cites, reacts to, summarizes, or is c
 VALUE:
 Evaluate the video across the following criteria. Output `<criteria label> <score> <confidence tag> with one row per criteria (insight, novelty, quality, delivery).
 Use [!] only when there is enough description about the content to confidently assign a score
-Use [?] if the tone or phrasing strongly hints at the likely score, but it's not explicit.  
-Use [??] if you're making a weak guess or the part of the description about the content is less than 100 words.  
+Use [?] if the tone or phrasing strongly hints at the likely score, but it's not explicit.
+Use [??] if you're making a weak guess or the part of the description about the content is less than 100 words.
 Use [???] if there is no solid basis to score — especially for insight, quality, or delivery.
 
 Do not assign a score of 4 or 5 unless the metadata clearly indicates strong structure, novelty, or credibility. When in doubt, favor leaving the score blank or assigning a low score.

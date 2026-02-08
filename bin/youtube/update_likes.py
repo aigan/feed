@@ -1,6 +1,7 @@
 #!/bin/env python
-from youtube import Rating
 from datetime import datetime, timezone
+
+from youtube import Rating
 
 batch_time = datetime.now(timezone.utc)
 ratings = Rating('like', batch_time)
