@@ -96,7 +96,7 @@ class Rating:
             timestamp = line.split()[0]
             #print(f"Compare {timestamp} <= {oldest_timestamp} from line {line}")
             if timestamp <= oldest_timestamp:
-                return lines[len(lines)-i:]
+                return lines[-i:] if i else lines
         return lines  # If no older timestamp found, return all lines
 
 

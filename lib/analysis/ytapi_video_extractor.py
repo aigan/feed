@@ -31,7 +31,9 @@ class YTAPIVideoExtractor(Processor):
         video_id = video.video_id
         result_file = Video.get_processed_dir(video_id) / "ytapi_extracted.json"
 
-        description = Transcript.process_timestamps(video.description)
+        from analysis.description_filter import DescriptionFilter
+        description = DescriptionFilter.strip(video.description, video, video.channel_id)
+        description = Transcript.process_timestamps(description)
 
         prompt = """
 VIDEO METADATA EXTRACTION
