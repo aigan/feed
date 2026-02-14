@@ -150,7 +150,16 @@ Length: {length}
 Description:
 {description}
 Tags: {tags}
+Categories: {categories}
         """
+
+        tags = DescriptionFilter.clean_tags(video.tags, video.channel.title)
+
+        categories = []
+        if video.topic_details and 'topicCategories' in video.topic_details:
+            for url in video.topic_details['topicCategories']:
+                name = url.rsplit('/', 1)[-1].replace('_', ' ')
+                categories.append(name)
 
         text_result = cls.ask_llm(
             prompt,
@@ -159,7 +168,8 @@ Tags: {tags}
                 "description": description,
                 "date": video.published_at,
                 "length": video.duration_formatted,
-                "tags": ", ".join(video.tags) if video.tags else "No tags",
+                "tags": ", ".join(tags) if tags else "None",
+                "categories": ", ".join(categories) if categories else "None",
             },
             model = 'gpt-4.1',
         )

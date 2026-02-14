@@ -2,6 +2,7 @@
 
 from youtube import Video
 from analysis import YTAPIVideoExtractor, YTTranscriptFormatter
+from analysis.description_filter import DescriptionFilter
 from pprint import pprint
 import argparse
 
@@ -25,12 +26,21 @@ print(f"Video {video_id} from {video.published_at}:\n{video.title}\nLength: {vid
 
 channel = video.channel
 print(f"Channel: {channel.title}")
+print("Tags: " + ", ".join(video.tags))
+
+print("\n*****\n")
 
 print(video.description)
-print("Tags: " + ", ".join(video.tags) + "\n")
 
-summary = YTAPIVideoExtractor.get(video)
-print("\n" + summary['text'] + "\n")
+print("\n*****\n")
+
+description = DescriptionFilter.get(video)
+unique_len = DescriptionFilter.unique_length(video.description, video.channel_id)
+print(description)
+print(f"\nUnique length: {unique_len}")
+
+#summary = YTAPIVideoExtractor.get(video)
+#print("\n" + summary['text'] + "\n")
 
 #result = YTTranscriptFormatter.get(video)
 #print(result)
