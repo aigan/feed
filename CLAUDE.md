@@ -83,6 +83,8 @@ There is no test framework, build system, or linter configured. Ad-hoc test scri
 
 ### Key conventions
 
+- Scripts in `bin/` must be executable (`chmod +x`)
+
 - Imports use package names directly (`from youtube import Video`, `from config import ROOT`) — works because `PYTHONPATH` includes `lib/`
 - Dataclass models use `@dataclass` with typed fields; constructed via `cls(**convert_fields(cls, data))`
 - `SafeNamespace` wraps API responses so missing fields return `NoneObject` (falsy) instead of raising `AttributeError`
