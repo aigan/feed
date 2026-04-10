@@ -413,15 +413,17 @@ class TestVideoRetrieveErrors:
         return mock_client
 
     def test_retrieve_empty_items_raises(self):
+        from youtube.video import VideoUnavailableError
         mock_client = self._mock_client({"items": []})
         with patch("youtube.get_youtube_client", return_value=mock_client):
-            with pytest.raises(IndexError):
+            with pytest.raises(VideoUnavailableError):
                 Video.retrieve("vid_deleted")
 
     def test_retrieve_no_items_key_raises(self):
+        from youtube.video import VideoUnavailableError
         mock_client = self._mock_client({})
         with patch("youtube.get_youtube_client", return_value=mock_client):
-            with pytest.raises(KeyError):
+            with pytest.raises(VideoUnavailableError):
                 Video.retrieve("vid_deleted")
 
 

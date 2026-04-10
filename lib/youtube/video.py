@@ -9,6 +9,10 @@ from context import Context
 from util import convert_fields, dump_json, to_dict, to_obj
 
 
+class VideoUnavailableError(Exception):
+    pass
+
+
 @dataclass
 class Video:
     """Represents a YouTube video"""
@@ -134,6 +138,8 @@ class Video:
             part="snippet,contentDetails,liveStreamingDetails,paidProductPlacementDetails,recordingDetails,statistics,status,topicDetails",
         )
         response = request.execute(num_retries=API_RETRIES)
+        if not response.get('items'):
+            raise VideoUnavailableError(video_id)
         item = to_obj(response['items'][0])
         #pprint(item, width=120)
         #batch_time = Context.get().batch_time

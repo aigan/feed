@@ -32,6 +32,21 @@ def test_group_read_write_permissions():
     assert not violations, 'Files missing group rw:\n' + '\n'.join(violations)
 
 
+def test_bin_scripts_are_executable():
+    violations = []
+    bin_dir = os.path.join(ROOT, 'bin')
+    for dirpath, _dirnames, filenames in os.walk(bin_dir):
+        for fname in filenames:
+            if not fname.endswith('.py'):
+                continue
+            filepath = os.path.join(dirpath, fname)
+            mode = os.stat(filepath).st_mode
+            if not (mode & stat.S_IXUSR and mode & stat.S_IXGRP):
+                rel = os.path.relpath(filepath, ROOT)
+                violations.append(f'  {rel}  ({oct(mode)})  fix: chmod ug+x')
+    assert not violations, 'bin .py files missing ug+x:\n' + '\n'.join(violations)
+
+
 def test_group_matches_user_permissions():
     violations = []
     for filepath in collect_files():

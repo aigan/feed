@@ -2,6 +2,7 @@ from datetime import datetime
 from pprint import pprint
 
 from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api._errors import IpBlocked, RequestBlocked
 
 
 class Transcript:
@@ -40,8 +41,10 @@ class Transcript:
             print(f"Selected transcript: {transcript.language_code} ({transcript.language})")
             return transcript
 
+        except (IpBlocked, RequestBlocked):
+            raise
         except Exception as e:
-            print(f"Error getting transcript: {e}")
+            print(f'[{type(e).__name__}] {video_id}')
             return None
 
     @classmethod

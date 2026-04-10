@@ -12,6 +12,7 @@ if not ROOT.exists():
     raise ValueError(f"PROJECT_ROOT points to non-existent path: '{ROOT}'")
 
 DATA_DIR = Path(os.environ.get('DATA_DIR', str(ROOT / "data")))
+MEDIA_DIR = Path(os.environ.get('MEDIA_DIR', '/srv/youtube'))
 
 # Chrome config — only needed for bin/web/ scripts
 CHROME_USER_DIR = os.environ.get('CHROME_USER_DIR')

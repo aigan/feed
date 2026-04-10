@@ -28,6 +28,17 @@ def iterate_videos(source_id):
 
     if id_type == 'playlist':
         _etag, video_ids = Playlist.retrieve_playlist_items(source_id)
-        return (Video.get(video_id) for video_id in video_ids)
+        return _iter_videos(video_ids)
 
     raise ValueError(f'Cannot determine ID type for: {source_id}')
+
+
+def _iter_videos(video_ids):
+    from youtube import Video
+    from youtube.video import VideoUnavailableError
+
+    for video_id in video_ids:
+        try:
+            yield Video.get(video_id)
+        except VideoUnavailableError:
+            print(f'[unavailable] {video_id}')
