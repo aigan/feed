@@ -127,6 +127,7 @@ class Playlist:
     @classmethod
     def retrieve(cls, channel_id) -> Generator[SafeNamespace, None, None]:
         from youtube import get_youtube_client
+        from youtube.client import API_RETRIES
         youtube = get_youtube_client()
         request = youtube.playlists().list(
             part="id,contentDetails,status,snippet",
@@ -134,7 +135,7 @@ class Playlist:
         )
 
         while request:
-            response = request.execute()
+            response = request.execute(num_retries=API_RETRIES)
             for item in to_obj(response['items']):
                 yield item
             request = youtube.playlists().list_next(request, response)
@@ -142,6 +143,7 @@ class Playlist:
     @classmethod
     def retrieve_playlist_items(cls, playlist_id, etag=None):
         from youtube import get_youtube_client
+        from youtube.client import API_RETRIES
         youtube = get_youtube_client()
         request = youtube.playlistItems().list(
             playlistId=playlist_id,
@@ -149,7 +151,7 @@ class Playlist:
             maxResults=50,
         )
 
-        first_response = request.execute()
+        first_response = request.execute(num_retries=API_RETRIES)
         new_etag = first_response['etag']
 
         if etag and etag == new_etag:
@@ -162,7 +164,7 @@ class Playlist:
 
         request = youtube.playlistItems().list_next(request, first_response)
         while request:
-            response = request.execute()
+            response = request.execute(num_retries=API_RETRIES)
             for item in response['items']:
                 video_ids.append(item['contentDetails']['videoId'])
             request = youtube.playlistItems().list_next(request, response)

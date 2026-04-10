@@ -127,12 +127,13 @@ class Video:
     @classmethod
     def retrieve(cls, video_id):
         from youtube import get_youtube_client
+        from youtube.client import API_RETRIES
         youtube = get_youtube_client()
         request = youtube.videos().list(
             id=video_id,
             part="snippet,contentDetails,liveStreamingDetails,paidProductPlacementDetails,recordingDetails,statistics,status,topicDetails",
         )
-        response = request.execute()
+        response = request.execute(num_retries=API_RETRIES)
         item = to_obj(response['items'][0])
         #pprint(item, width=120)
         #batch_time = Context.get().batch_time

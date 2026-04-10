@@ -1,10 +1,10 @@
 #!/bin/env python
 
-from youtube import Video
+import argparse
+
+from youtube import Video, iterate_videos
 from analysis import YTAPIVideoExtractor, YTTranscriptFormatter
 from analysis.description_filter import DescriptionFilter
-from pprint import pprint
-import argparse
 
 #video_id = "pMFH1buJOKA" # Wayward Radio Ep. #3- The Grand RPG
 #video_id = "-rs7LHtODh4" # Half-Life 3 - The Rise, Fall & Rebirth
@@ -13,36 +13,72 @@ import argparse
 #video_id = "vnOrkLQAU7E" # 13 Turns to Kill the Spawn God // CHAINS OF FREEDOM // Part 19
 #video_id = "OkoHyOhHEuk" # TDS Celebrates Earth Day by Tackling Climate Change | The Daily Show
 #video_id = "LPBI7WVD0zI" # Top U.S. & World Headlines — April 21, 2025
+#video_id = "Dnk3uwc-2qI" # Just Happened! Insane NEW Version Tesla Bot Gen 3 Revealed! Elon Musk Shocked Unique Design!
 
-parser = argparse.ArgumentParser(description="Process a YouTube video.")
-parser.add_argument("video_id", help="The YouTube video ID to process")
+
+def is_processed(video_id):
+    processed_dir = Video.get_processed_dir(video_id)
+    return (
+        (processed_dir / 'description.txt').exists()
+        and (processed_dir / 'transcript.txt').exists()
+    )
+
+
+def process_video(video, force=False):
+    video_id = video.video_id
+
+    if not force and is_processed(video_id):
+        print(f'[skip] {video_id} {video.title}')
+        return 'skip'
+
+    header = f'{video_id}  {video.title}'
+    print(f'\n{"=" * len(header)}')
+    print(header)
+    print(f'{"=" * len(header)}\n')
+
+    #DescriptionFilter.get(video)
+    #YTTranscriptFormatter.get(video)
+
+    summary = YTAPIVideoExtractor.get(video)
+    print('\n' + summary['text'] + '\n')
+
+    if 'evaluation' in summary:
+        ev = summary['evaluation']
+        print(f"  Verdict: {ev['verdict']}  |  Coverage: {ev['coverage']}")
+        if ev.get('gaps'):
+            print(f"  Gaps: {', '.join(ev['gaps'][:3])}")
+        if ev.get('value'):
+            scores = '  '.join(f'{k}: {v}' for k, v in ev['value'].items())
+            print(f'  Scores: {scores}')
+        print()
+
+    return 'ok'
+
+
+parser = argparse.ArgumentParser(description='Process YouTube videos.')
+parser.add_argument('source_id', help='Video ID, channel ID (UC...), or playlist ID (PL...)')
+parser.add_argument('--force', action='store_true', help='Re-process even if output files exist')
 args = parser.parse_args()
-video_id = args.video_id
 
+processed = 0
+skipped = 0
+errors = 0
 
+try:
+    for video in iterate_videos(args.source_id):
+        try:
+            result = process_video(video, force=args.force)
+            if result == 'skip':
+                skipped += 1
+            else:
+                processed += 1
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            errors += 1
+            print(f'[error] {video.video_id}: {e}')
+except KeyboardInterrupt:
+    print('\nInterrupted')
 
-video = Video.get(video_id)
-print(f"Video {video_id} from {video.published_at}:\n{video.title}\nLength: {video.duration_formatted}")
-
-channel = video.channel
-print(f"Channel: {channel.title}")
-print("Tags: " + ", ".join(video.tags))
-
-print("\n*****\n")
-
-print(video.description)
-
-print("\n*****\n")
-
-description = DescriptionFilter.get(video)
-unique_len = DescriptionFilter.unique_length(video.description, video.channel_id)
-print(description)
-print(f"\nUnique length: {unique_len}")
-
-#summary = YTAPIVideoExtractor.get(video)
-#print("\n" + summary['text'] + "\n")
-
-#result = YTTranscriptFormatter.get(video)
-#print(result)
-
-print("DONE")
+total = processed + skipped + errors
+print(f'\nDone: {processed} processed, {skipped} skipped, {errors} errors ({total} total)')

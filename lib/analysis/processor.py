@@ -7,15 +7,21 @@ class Processor:
             prompt: str,
             params: dict = None,
             *,
-            model: str = 'gpt-4.1-mini',
-            temperature: float = 0.8, # 0 to 2
+            model: str = 'gpt-5-mini',
+            temperature: float = None,
+            reasoning_effort: str = None,
             ) -> str:
         from langchain_core.output_parsers import StrOutputParser
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_openai import ChatOpenAI
 
         prompt_template = ChatPromptTemplate.from_template(prompt)
-        llm = ChatOpenAI(model=model, temperature=temperature)
+        kwargs = dict(model=model)
+        if temperature is not None:
+            kwargs['temperature'] = temperature
+        if reasoning_effort is not None:
+            kwargs['reasoning_effort'] = reasoning_effort
+        llm = ChatOpenAI(**kwargs)
         chain = prompt_template | llm | StrOutputParser()
         return chain.invoke(params)
 

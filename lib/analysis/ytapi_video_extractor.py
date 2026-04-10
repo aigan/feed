@@ -1,12 +1,17 @@
-
-from pprint import pprint
+import re
 
 from analysis import Processor
 from context import Context
 
 
 class YTAPIVideoExtractor(Processor):
-    PROMPT_VERSION = 1
+    PROMPT_VERSION = 2
+
+    TRACE_FORMATS = {'news', 'commentary', 'reaction', 'embed'}
+    ENTITY_CATEGORIES = {
+        'person', 'organization', 'product', 'workseries',
+        'technology', 'location', 'date', 'event',
+    }
 
     @classmethod
     def get(cls, video):
@@ -15,7 +20,7 @@ class YTAPIVideoExtractor(Processor):
         from youtube import Video
 
         video_id = video.video_id
-        result_file = Video.get_processed_dir(video_id) / "ytapi_extracted.json"
+        result_file = Video.get_processed_dir(video_id) / 'ytapi_extracted.json'
         if result_file.exists():
             result = json.loads(result_file.read_text())
             if (result['prompt_version'] == cls.PROMPT_VERSION and
@@ -26,134 +31,46 @@ class YTAPIVideoExtractor(Processor):
     @classmethod
     def run(cls, video):
         from util import dump_json
-        from youtube import Transcript, Video
+        from youtube import Video
 
         video_id = video.video_id
-        result_file = Video.get_processed_dir(video_id) / "ytapi_extracted.json"
+        result_file = Video.get_processed_dir(video_id) / 'ytapi_extracted.json'
 
+        context = cls._build_context(video)
+
+        print('  [1/3] Extracting...')
+        extracted = cls._step_extract(context)
+
+        source_trace = None
+        if cls._should_trace(extracted):
+            print('  [2/3] Tracing source...')
+            source_trace = cls._step_source_trace(context, extracted)
+        else:
+            print('  [2/3] Source trace: skipped')
+
+        print('  [3/3] Evaluating...')
+        evaluation = cls._step_evaluate(context, extracted, source_trace)
+
+        result = cls._assemble(video, context, extracted, source_trace, evaluation)
+        cls._validate(result, context)
+        dump_json(result_file, result)
+        return result
+
+    # --- Input preparation ---
+
+    @classmethod
+    def _build_context(cls, video):
         from analysis.description_filter import DescriptionFilter
+        from youtube import Transcript
+
+        channel = video.channel
         description = DescriptionFilter.strip(video.description, video, video.channel_id)
-        description = Transcript.process_timestamps(description)
+        unique_length = DescriptionFilter.unique_length(video.description, video.channel_id)
+        tags = DescriptionFilter.clean_tags(video.tags, channel.title)
 
-        prompt = """
-VIDEO METADATA EXTRACTION
-
-Given the following video metadata, extract structured information in the sections below.
-
-For **every output line**, append exactly one CONFIDENCE TAG:
-  [!]   = confident (exact match in input)
-  [?]   = plausible (slightly reworded from input)
-  [??]  = speculative (inferred from context)
-  [???] = no data available
-
-FORMAT:
-Select one or more formats from the following list. Output as `<format label> <confidence tag>` with one line per entry.
- - interview: one‑on‑one Q&A with host and guest
- - discussion: multi‑voice roundtable or panel
- - monologue: single speaker addressing the audience
- - presentation: structured talk or keynote with visuals/slides
- - documentary: edited, fact‑driven narrative with multiple sources
- - essay: scripted, argument‑driven analysis
- - review: evaluative critique of a product or work
- - reaction: creator’s real‑time or first‑view response to external media (faces, brief remarks)
- - commentary: creator adds substantive discussion or analysis (pauses, explains, breaks down)
- - embed: external media shown largely unaltered and central to the video
- - letsplay: gameplay footage with live commentary
- - news: report on current events or announcements
- - tutorial: step‑by‑step instructional content
- - vlog: personal or behind‑the‑scenes video log
- - compilation: curated collection of clips or highlights
- - livestream: real‑time broadcast, often interactive
- - skit: short scripted fictional or comedic piece
- - other: format that doesn’t fit or mixes types equally
-
-
-EPISODE:
-If a series, extract both the series title and episode number or name, if present. Otherwise, write none. Output as `<series>: <episode> <confidence tag>`.
-
-SPEAKERS:
-Identify all speakers mentioned, including:
- - Full name. Use metadata and common knowledge (e.g., resolve known handles to names).
- - Roles: host, guest, narrator, interviewee, etc.
- - Short description: Include affiliations, professional titles, or notable relationships.
- - Format as `<full name>: <roles>, <description> <confidence tag>` with one line per entry; no markdown.
- - Each speaker must also appear under ENTITIES using the same full name.
-
-TIMESTAMPS:
-Extract all timestamps and their associated topics or segments
- - Existing timestamps in HH:MM:ss format have been amended with the corresponding timestamp as offset in seconds from the start. For example `[ts 177] 2:57 Chapter title`. Extract all timestamps and chapter descriptions, using the `[ts <offset>]`.
- - Format as `<offset>: <topic description>`
- - For each list item under TIMESTAMPS, do not use markdown formatting symbols, but make sure that the offset is an integer and not in the `MM:ss` format. The first timestamp should be `0: <topic description>`.
-
-ENTITIES:
-List all named entities; real, fictional, or speculative. If mentioned in the input, include online handles, channel names, URLs, or other aliases in a comma-separated list inserted in the <aliases> position. Format each row with `<canonical term> (<category>) <aliases> <confidence tag>`. Use these categories:
-- person: A named individual or sentient agent, including humans, characters, AI, animals, spirits, avatars, or mythical beings.
-- organization: Any named group, institution, company, movement, team, or faction.
-- product: A named item such as a game, film, book, food, service, device, or software.
-- workseries: A recurring or branded sequence of creative works or narratives, such as franchises, universes, or serialized shows.
-- technology: Any named method, system, tool, engine, programming language, library, or platform.
-- location: Any named place, including countries, cities, regions, virtual spaces, planets, or in-world environments.
-- date: Any specific point or span in time, including years, eras, relative phrases, or projected timelines.
-- event: Any occurrence or happening, such as launches, battles, releases, protests, ceremonies, or historical/cultural moments.
-If a named item does not clearly match any of the above categories, do not include it under ENTITIES — use the CONCEPTS section instead.
-
-CONCEPTS:
-List key ideas using keyword and description. The keyword should be a concise term, followed by a brief description explaining its context in this video. Do not include disclaimers, copyright notices, standard calls to action, or boilerplate metadata unless clearly framed as part of the video’s actual topic. Format each row with `<canonical term>: <description> <confidence tag>`.
-
-RELATIONSHIPS:
-List important connections between entities or concepts mentioned above, showing how they relate to each other. Format each row with two or more entities with `<entity 1> + <entity 2> + <entity 3>: <relationship description> <confidence tag>`
-
-SOURCES:
-List each distinct external item the video cites, reacts to, summarizes, or is clearly based on  —  such as videos, events, books, news stories, posts, or products. Use only details found in the input. If a source is unnamed, supply a concise descriptive label. Where available, include identifying clues (speaker, quoted title, date, venue, or platform) to aid later retrieval, and merge duplicates that refer to the same material. If a source includes a URL, place it at the end of the line, space-separated. If no URL is given, output an empty string instead. Remember to also add confidence tags if the source is uncertain. Output `<source description> (<clues>) <URL>  <confidence tag>`, with one source per row.
-
-VALUE:
-Evaluate the video across the following criteria. Output `<criteria label> <score> <confidence tag> with one row per criteria (insight, novelty, quality, delivery).
-Use [!] only when there is enough description about the content to confidently assign a score
-Use [?] if the tone or phrasing strongly hints at the likely score, but it's not explicit.
-Use [??] if you're making a weak guess or the part of the description about the content is less than 100 words.
-Use [???] if there is no solid basis to score — especially for insight, quality, or delivery.
-
-Do not assign a score of 4 or 5 unless the metadata clearly indicates strong structure, novelty, or credibility. When in doubt, favor leaving the score blank or assigning a low score.
-
-* Insight
-  5: Reveals underlying systems, root causes, or transformative mechanisms.
-  4: Offers structured reasoning or connects ideas meaningfully.
-  3: Raises thoughtful points but lacks depth or system framing.
-  2: Mostly descriptive with limited analysis or framing.
-  1: Lists facts or opinions with no explanation or structure.
-
-* Novelty
-  5: Presents rare angles, underreported stories, or original framings.
-  4: Covers newer or less saturated developments.
-  3: Somewhat familiar, but includes minor fresh context or synthesis.
-  2: Repetitive or derivative of common narratives.
-  1: Predictable, recycled, or no new information at all.
-
-* Quality
-  5: Thoughtful, evidence-based, balanced, and intellectually honest.
-  4: Clear logic with minor bias or simplification.
-  3: Mixed reasoning; some overreach or omission.
-  2: Uses emotional hooks, partisanship, or flawed logic.
-  1: Manipulative, dishonest, or structurally incoherent.
-
-* Delivery
-  5: High insight density and excellent production craft—engaging voice, smart editing, visual support, music, or atmosphere enhance clarity and impact.
-  4: Mostly well-paced or well-crafted; some standout elements in format or presentation.
-  3: Competent but uneven—some distracting flaws or missed opportunities in format.
-  2: Poor pacing or low production effort; distracting, unclear, or aesthetically flat.
-  1: Visually or aurally unpleasant, incoherent, or unserious in tone vs. topic.
-
-
-Video Title: {title}
-Upload date: {date}
-Length: {length}
-Description:
-{description}
-Tags: {tags}
-Categories: {categories}
-        """
-
-        tags = DescriptionFilter.clean_tags(video.tags, video.channel.title)
+        # Extract timestamps mechanically from [ts SECONDS] markers
+        processed = Transcript.process_timestamps(description)
+        timestamps = cls._extract_timestamps(processed)
 
         categories = []
         if video.topic_details and 'topicCategories' in video.topic_details:
@@ -161,42 +78,524 @@ Categories: {categories}
                 name = url.rsplit('/', 1)[-1].replace('_', ' ')
                 categories.append(name)
 
-        text_result = cls.ask_llm(
-            prompt,
-            {
-                "title": video.title,
-                "description": description,
-                "date": video.published_at,
-                "length": video.duration_formatted,
-                "tags": ", ".join(tags) if tags else "None",
-                "categories": ", ".join(categories) if categories else "None",
-            },
-            model = 'gpt-4.1',
-        )
-
-        batch_time = Context.get().batch_time
-        result = {
-            "extracted_at": batch_time.isoformat(),
-            "video_id": video_id,
-            "video_last_updated": video.last_updated.isoformat(),
-            "prompt_version": cls.PROMPT_VERSION,
-            "text": text_result,
+        return {
+            'title': video.title,
+            'channel_title': channel.title,
+            'description': description,
+            'unique_length': unique_length,
+            'date': video.published_at,
+            'length': video.duration_formatted,
+            'duration_seconds': video.duration_seconds,
+            'tags': tags,
+            'categories': categories,
+            'timestamps': timestamps,
         }
 
-        #pprint(result)
-        dump_json(result_file, result)
+    @classmethod
+    def _extract_timestamps(cls, processed_description):
+        """Extract (offset, description) pairs from [ts SECONDS] markers."""
+        pattern = re.compile(r'\[ts (\d+)\]\s+\d+:(?:\d+:)?\d+\s*(.*)')
+        timestamps = []
+        for match in pattern.finditer(processed_description):
+            offset = int(match.group(1))
+            text = match.group(2).strip()
+            if text:
+                timestamps.append({'offset': offset, 'description': text})
+        return timestamps
 
+    # --- Parsing helpers ---
+
+    @classmethod
+    def _parse_sections(cls, text):
+        """Split LLM output by === SECTION === delimiters."""
+        sections = {}
+        current = None
+        lines = []
+        for line in text.splitlines():
+            match = re.match(r'^===\s*(.+?)\s*===$', line)
+            if match:
+                if current is not None:
+                    sections[current] = '\n'.join(lines).strip()
+                current = match.group(1).upper()
+                lines = []
+            else:
+                lines.append(line)
+        if current is not None:
+            sections[current] = '\n'.join(lines).strip()
+        return sections
+
+    @classmethod
+    def _parse_pipe_lines(cls, text):
+        """Split non-empty lines by ' | ', return list of tuples."""
+        result = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = [p.strip() for p in line.split(' | ')]
+            result.append(parts)
         return result
+
+    @classmethod
+    def _parse_pipe_section(cls, sections, key, fields):
+        """Parse a pipe-delimited section into a list of dicts with given field names."""
+        result = []
+        if key in sections:
+            for parts in cls._parse_pipe_lines(sections[key]):
+                entry = {name: parts[i] if len(parts) > i else ''
+                         for i, name in enumerate(fields)}
+                result.append(entry)
+        return result
+
+    @classmethod
+    def _parse_prefixed(cls, text):
+        """Parse PREFIX: value lines into a dict."""
+        result = {}
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            match = re.match(r'^([A-Z_]+):\s*(.*)', line)
+            if match:
+                result[match.group(1).lower()] = match.group(2).strip()
+        return result
+
+    # --- Step 1: Extract ---
+
+    @classmethod
+    def _step_extract(cls, context):
+        description_note = ''
+        if context['unique_length'] < 50:
+            description_note = (
+                '\nNote: Description is minimal. '
+                'Extract from title and tags only.\n'
+            )
+
+        prompt = """VIDEO METADATA EXTRACTION
+
+Extract structured information from the video metadata below.
+Focus on facts only — no confidence ratings, no quality judgments, no timestamps.
+{description_note}
+For each section, use the exact format shown.
+Use ` | ` (space-pipe-space) to separate fields. One entry per line.
+
+=== FORMAT ===
+Select one or more: interview, discussion, monologue, presentation, documentary, essay, review, reaction, commentary, embed, letsplay, news, tutorial, vlog, compilation, livestream, skit, other
+
+=== EPISODE ===
+If this is part of a series, write: series title | episode number or name
+Otherwise write: none
+
+=== SPEAKERS ===
+full name | role (host/guest/narrator/subject/referenced) | short description
+Each speaker must also appear under ENTITIES.
+
+=== ENTITIES ===
+canonical name | category (person/organization/product/workseries/technology/location/date/event) | aliases if any
+Include all named entities: real, fictional, or speculative.
+
+=== CONCEPTS ===
+keyword | description of its context in this video
+Key ideas, themes, or topics. No boilerplate, disclaimers, or calls to action.
+
+=== RELATIONSHIPS ===
+entity1 + entity2 | relationship description
+Important connections between entities or concepts listed above.
+
+=== SOURCES ===
+source description | identifying clues (speaker, title, date, platform) | URL or none
+Each distinct external item the video cites, reacts to, summarizes, or is based on.
+
+Video Title: {title}
+Channel: {channel_title}
+Upload date: {date}
+Length: {length}
+Description:
+{description}
+Tags: {tags}
+Categories: {categories}"""
+
+        text = cls.ask_llm(
+            prompt,
+            {
+                'title': context['title'],
+                'channel_title': context['channel_title'],
+                'description': context['description'],
+                'date': context['date'],
+                'length': context['length'],
+                'tags': ', '.join(context['tags']) if context['tags'] else 'None',
+                'categories': ', '.join(context['categories']) if context['categories'] else 'None',
+                'description_note': description_note,
+            },
+            model='gpt-5-mini',
+        )
+
+        extracted = cls._parse_extraction(text)
+        extracted['_raw'] = text
+        return extracted
+
+    @classmethod
+    def _parse_extraction(cls, text):
+        sections = cls._parse_sections(text)
+
+        formats = []
+        if 'FORMAT' in sections:
+            for line in sections['FORMAT'].splitlines():
+                line = line.strip().lower()
+                if line:
+                    formats.append(line)
+
+        episode = None
+        if 'EPISODE' in sections:
+            ep_text = sections['EPISODE'].strip()
+            if ep_text.lower() != 'none' and ep_text:
+                parts = [p.strip() for p in ep_text.split(' | ')]
+                episode = {
+                    'series': parts[0],
+                    'episode': parts[1] if len(parts) > 1 else None,
+                }
+
+        speakers = cls._parse_pipe_section(sections, 'SPEAKERS', ('name', 'role', 'description'))
+        entities = cls._parse_pipe_section(sections, 'ENTITIES', ('name', 'category', 'aliases'))
+        concepts = cls._parse_pipe_section(sections, 'CONCEPTS', ('keyword', 'description'))
+        relationships = cls._parse_pipe_section(sections, 'RELATIONSHIPS', ('entities', 'description'))
+        sources = cls._parse_pipe_section(sections, 'SOURCES', ('description', 'clues', 'url'))
+        for s in sources:
+            if not s['url'] or s['url'].lower() == 'none':
+                s['url'] = None
+
+        return {
+            'formats': formats,
+            'episode': episode,
+            'speakers': speakers,
+            'entities': entities,
+            'concepts': concepts,
+            'relationships': relationships,
+            'sources': sources,
+        }
+
+    # --- Step 2: Source trace ---
+
+    @classmethod
+    def _should_trace(cls, extracted):
+        if set(extracted['formats']) & cls.TRACE_FORMATS:
+            return True
+        if extracted['sources'] and all(s['url'] is None for s in extracted['sources']):
+            return True
+        return False
+
+    @classmethod
+    def _step_source_trace(cls, context, extracted):
+        entities_text = '\n'.join(
+            f"  {e['name']} ({e['category']})" for e in extracted['entities']
+        )
+        sources_text = '\n'.join(
+            f"  {s['description']} ({s['clues']})" for s in extracted['sources']
+        )
+
+        prompt = """ORIGINAL SOURCE IDENTIFICATION
+
+This video appears to be secondary coverage. Identify what original material it covers.
+
+Video Title: {title}
+Channel: {channel_title}
+Description:
+{description}
+
+Extracted entities:
+{entities}
+
+Extracted sources:
+{sources}
+
+Identify the original material being covered. Output exactly these fields:
+ORIGINAL: what the video is covering (concise label)
+CREATOR: who created the original material
+TYPE: announcement / article / video / paper / event / product / other
+CLUES: evidence for or against this being identifiable (language, missing links, speculative phrasing)
+URL: URL if found, otherwise none"""
+
+        text = cls.ask_llm(
+            prompt,
+            {
+                'title': context['title'],
+                'channel_title': context['channel_title'],
+                'description': context['description'],
+                'entities': entities_text or '  (none)',
+                'sources': sources_text or '  (none)',
+            },
+            model='gpt-5-mini',
+        )
+
+        parsed = cls._parse_prefixed(text)
+        url = parsed.get('url')
+        if url and url.lower() == 'none':
+            url = None
+        return {
+            'original': parsed.get('original', ''),
+            'creator': parsed.get('creator', ''),
+            'type': parsed.get('type', ''),
+            'clues': parsed.get('clues', ''),
+            'url': url,
+        }
+
+    # --- Step 3: Evaluate ---
+
+    @classmethod
+    def _step_evaluate(cls, context, extracted, source_trace):
+        formats_text = ', '.join(extracted['formats'])
+        speakers_text = '\n'.join(
+            f"  {s['name']} ({s['role']})" for s in extracted['speakers']
+        )
+        entities_text = '\n'.join(
+            f"  {e['name']} ({e['category']})" for e in extracted['entities']
+        )
+        concepts_text = '\n'.join(
+            f"  {c['keyword']}" for c in extracted['concepts']
+        )
+
+        trace_text = 'not performed'
+        if source_trace:
+            trace_text = (
+                f"{source_trace['original']} by {source_trace['creator']}"
+                f" ({source_trace['type']})"
+            )
+
+        prompt = """Review this video metadata extraction. Assess how much we can actually determine from the available metadata.
+
+Original metadata:
+Title: {title}
+Description length: {unique_length} unique characters
+Video length: {length}
+
+Extraction summary:
+Formats: {formats}
+Speakers:
+{speakers}
+Entities:
+{entities}
+Key concepts:
+{concepts}
+
+Source trace: {source_trace}
+
+Assess each of these — use the exact prefix labels:
+
+COVERAGE: How much of the video content can we infer from metadata? (full / partial / minimal)
+
+GAPS: What important things can we NOT determine from metadata alone? List specific unknowns, one per line starting with "- ".
+
+SUPPORTED: Which extracted items are directly supported by the description? Which are inferred? One per line starting with "- ".
+
+VALUE: Can you estimate quality scores from this metadata?
+If yes, output on separate lines: insight: N, novelty: N, quality: N, delivery: N (each 1-5).
+If not enough information, write: insufficient metadata
+
+VERDICT: One of:
+- discard: clearly not worth pursuing (spam, duplicate, off-topic)
+- score: enough metadata to assign meaningful quality scores
+- need_transcript: can't reliably judge quality from metadata alone"""
+
+        text = cls.ask_llm(
+            prompt,
+            {
+                'title': context['title'],
+                'unique_length': context['unique_length'],
+                'length': context['length'],
+                'formats': formats_text or 'unknown',
+                'speakers': speakers_text or '  (none)',
+                'entities': entities_text or '  (none)',
+                'concepts': concepts_text or '  (none)',
+                'source_trace': trace_text,
+            },
+            model='gpt-5-mini',
+            reasoning_effort='medium',
+        )
+
+        return cls._parse_evaluation(text)
+
+    @classmethod
+    def _parse_evaluation(cls, text):
+        # Split into sections by prefix labels
+        sections = {}
+        current_key = None
+        current_lines = []
+        for line in text.splitlines():
+            match = re.match(
+                r'^(COVERAGE|GAPS|SUPPORTED|VALUE|VERDICT):\s*(.*)', line
+            )
+            if match:
+                if current_key:
+                    sections[current_key] = '\n'.join(current_lines).strip()
+                current_key = match.group(1).lower()
+                current_lines = [match.group(2)]
+            else:
+                current_lines.append(line)
+        if current_key:
+            sections[current_key] = '\n'.join(current_lines).strip()
+
+        coverage = sections.get('coverage', 'minimal').strip().lower()
+        if coverage not in ('full', 'partial', 'minimal'):
+            coverage = 'minimal'
+
+        gaps = []
+        for line in sections.get('gaps', '').splitlines():
+            line = line.strip()
+            if line.startswith('- '):
+                gaps.append(line[2:].strip())
+            elif line:
+                gaps.append(line)
+
+        supported = []
+        for line in sections.get('supported', '').splitlines():
+            line = line.strip()
+            if line.startswith('- '):
+                supported.append(line[2:].strip())
+            elif line:
+                supported.append(line)
+
+        value = None
+        value_text = sections.get('value', '')
+        if 'insufficient' not in value_text.lower():
+            scores = {}
+            for key in ('insight', 'novelty', 'quality', 'delivery'):
+                score_match = re.search(
+                    rf'{key}:\s*(\d)', value_text, re.IGNORECASE
+                )
+                if score_match:
+                    scores[key] = int(score_match.group(1))
+            if scores:
+                value = scores
+
+        verdict = sections.get('verdict', 'need_transcript').strip().lower()
+        for v in ('discard', 'score', 'need_transcript'):
+            if v in verdict:
+                verdict = v
+                break
+        else:
+            verdict = 'need_transcript'
+
+        return {
+            'coverage': coverage,
+            'gaps': gaps,
+            'supported': supported,
+            'value': value,
+            'verdict': verdict,
+        }
+
+    # --- Assembly, validation, output ---
+
+    @classmethod
+    def _format_text(cls, extracted, timestamps):
+        """Generate backward-compatible text representation."""
+        lines = []
+
+        lines.append('FORMAT:')
+        for f in extracted['formats']:
+            lines.append(f)
+        lines.append('')
+
+        lines.append('EPISODE:')
+        if extracted['episode']:
+            ep = extracted['episode']
+            lines.append(f"{ep['series']}: {ep['episode'] or ''}")
+        else:
+            lines.append('none')
+        lines.append('')
+
+        lines.append('SPEAKERS:')
+        for s in extracted['speakers']:
+            lines.append(f"{s['name']} | {s['role']} | {s['description']}")
+        lines.append('')
+
+        lines.append('TIMESTAMPS:')
+        for ts in timestamps:
+            lines.append(f"{ts['offset']}: {ts['description']}")
+        lines.append('')
+
+        lines.append('ENTITIES:')
+        for e in extracted['entities']:
+            lines.append(f"{e['name']} | {e['category']} | {e['aliases']}")
+        lines.append('')
+
+        lines.append('CONCEPTS:')
+        for c in extracted['concepts']:
+            lines.append(f"{c['keyword']} | {c['description']}")
+        lines.append('')
+
+        lines.append('RELATIONSHIPS:')
+        for r in extracted['relationships']:
+            lines.append(f"{r['entities']} | {r['description']}")
+        lines.append('')
+
+        lines.append('SOURCES:')
+        for s in extracted['sources']:
+            lines.append(f"{s['description']} | {s['clues']} | {s['url'] or 'none'}")
+
+        return '\n'.join(lines)
+
+    @classmethod
+    def _validate(cls, result, context):
+        entity_names = {e['name'].lower() for e in result.get('entities', [])}
+        for speaker in result.get('speakers', []):
+            if speaker['name'].lower() not in entity_names:
+                print(f"  [warn] Speaker '{speaker['name']}' not found in entities")
+
+        for entity in result.get('entities', []):
+            if entity['category'].lower() not in cls.ENTITY_CATEGORIES:
+                print(f"  [warn] Entity '{entity['name']}' has unknown category '{entity['category']}'")
+
+        if result.get('evaluation', {}).get('value'):
+            for key, score in result['evaluation']['value'].items():
+                if not (1 <= score <= 5):
+                    print(f"  [warn] Value score '{key}' is {score}, expected 1-5")
+
+        timestamps = result.get('timestamps', [])
+        duration = context.get('duration_seconds')
+        for i, ts in enumerate(timestamps):
+            if i > 0 and ts['offset'] < timestamps[i - 1]['offset']:
+                print(f"  [warn] Timestamp {ts['offset']} is not ascending")
+            if duration and ts['offset'] > duration:
+                print(f"  [warn] Timestamp {ts['offset']} exceeds duration {duration}")
+
+    @classmethod
+    def _assemble(cls, video, context, extracted, source_trace, evaluation):
+        batch_time = Context.get().batch_time
+        return {
+            'extracted_at': batch_time.isoformat(),
+            'video_id': video.video_id,
+            'video_last_updated': video.last_updated.isoformat(),
+            'prompt_version': cls.PROMPT_VERSION,
+            'unique_length': context['unique_length'],
+            'formats': extracted['formats'],
+            'episode': extracted['episode'],
+            'speakers': extracted['speakers'],
+            'timestamps': context['timestamps'],
+            'entities': extracted['entities'],
+            'concepts': extracted['concepts'],
+            'relationships': extracted['relationships'],
+            'sources': extracted['sources'],
+            'source_trace': source_trace,
+            'evaluation': evaluation,
+            'text': cls._format_text(extracted, context['timestamps']),
+        }
 
     @classmethod
     def get_chapters(cls, video):
         import re
-        summary = cls.get(video)['text']
 
+        result = cls.get(video)
+
+        # New structured format (v2+)
+        if result.get('timestamps'):
+            return [[ts['offset'], ts['description']] for ts in result['timestamps']]
+
+        # Legacy fallback (v1)
+        summary = result['text']
         timestamp_match = re.search(r'TIMESTAMPS:(.*?)(\n\s*\n|\Z)', summary, re.DOTALL)
-        if not timestamp_match: return []
+        if not timestamp_match:
+            return []
 
         chapter_re = r'(?P<seconds>\d+): (?P<description>.*?)(?=\n\d+:|$)'
         chapter_matches = re.finditer(chapter_re, timestamp_match.group(1), re.DOTALL)
-
         return [[int(m['seconds']), m['description'].strip()] for m in chapter_matches]

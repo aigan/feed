@@ -11,7 +11,42 @@ from analysis.ytapi_video_extractor import YTAPIVideoExtractor
 # Helpers
 # ---------------------------------------------------------------------------
 
-CANNED_LLM_RESPONSE = """\
+CANNED_EXTRACT_RESPONSE = """\
+=== FORMAT ===
+monologue
+
+=== EPISODE ===
+none
+
+=== SPEAKERS ===
+John Doe | host | tech reviewer
+
+=== ENTITIES ===
+John Doe | person |
+
+=== CONCEPTS ===
+testing | Software testing methodology
+
+=== RELATIONSHIPS ===
+John Doe + testing | Host discusses testing
+
+=== SOURCES ==="""
+
+CANNED_EVAL_RESPONSE = """\
+COVERAGE: minimal
+
+GAPS:
+- Cannot determine production quality from metadata
+
+SUPPORTED:
+- Speaker identified from title
+
+VALUE: insufficient metadata
+
+VERDICT: need_transcript"""
+
+# Legacy format used by get_chapters tests (cached results from old prompt versions)
+CANNED_LEGACY_TEXT = """\
 FORMAT:
 monologue [!]
 
@@ -56,6 +91,8 @@ def _make_video_mock(**overrides):
     video.duration_formatted = overrides.get("duration_formatted", "10:00")
     video.tags = overrides.get("tags", ["tag1", "tag2"])
     video.last_updated = overrides.get("last_updated", BATCH_TIME)
+    video.channel.title = overrides.get("channel_title", "Test Channel")
+    video.duration_seconds = overrides.get("duration_seconds", 600)
     return video
 
 
@@ -66,12 +103,13 @@ def _make_video_mock(**overrides):
 class TestYTAPIVideoExtractorRun:
     def test_run_stores_result_and_returns_dict(self, ctx):
         video = _make_video_mock()
-        with patch.object(YTAPIVideoExtractor, "ask_llm", return_value=CANNED_LLM_RESPONSE):
+        responses = [CANNED_EXTRACT_RESPONSE, CANNED_EVAL_RESPONSE]
+        with patch.object(YTAPIVideoExtractor, "ask_llm", side_effect=responses):
             result = YTAPIVideoExtractor.run(video)
 
         assert result["video_id"] == "vid_ext_test"
         assert result["prompt_version"] == YTAPIVideoExtractor.PROMPT_VERSION
-        assert result["text"] == CANNED_LLM_RESPONSE
+        assert "FORMAT:" in result["text"]
         assert result["extracted_at"] == BATCH_TIME.isoformat()
 
         # File should be written
@@ -79,19 +117,20 @@ class TestYTAPIVideoExtractorRun:
         assert result_file.exists()
 
     def test_run_passes_video_metadata_to_llm(self, ctx):
-        video = _make_video_mock(title="Special Title", tags=["a", "b"])
-        call_args = {}
+        video = _make_video_mock(title="Special Title", tags=["python", "review"])
+        extract_args = {}
 
         def capture_llm(prompt, params, **kwargs):
-            call_args.update(params)
-            return CANNED_LLM_RESPONSE
+            if not extract_args:
+                extract_args.update(params)
+            return CANNED_EXTRACT_RESPONSE
 
         with patch.object(YTAPIVideoExtractor, "ask_llm", side_effect=capture_llm):
             YTAPIVideoExtractor.run(video)
 
-        assert call_args["title"] == "Special Title"
-        assert call_args["tags"] == "a, b"
-        assert call_args["length"] == "10:00"
+        assert extract_args["title"] == "Special Title"
+        assert extract_args["tags"] == "python, review"
+        assert extract_args["length"] == "10:00"
 
 
 # ---------------------------------------------------------------------------
@@ -124,10 +163,11 @@ class TestYTAPIVideoExtractorGet:
         }
         write_json("youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json", cached)
 
-        with patch.object(YTAPIVideoExtractor, "ask_llm", return_value=CANNED_LLM_RESPONSE):
+        responses = [CANNED_EXTRACT_RESPONSE, CANNED_EVAL_RESPONSE]
+        with patch.object(YTAPIVideoExtractor, "ask_llm", side_effect=responses):
             result = YTAPIVideoExtractor.get(video)
 
-        assert result["text"] == CANNED_LLM_RESPONSE
+        assert "FORMAT:" in result["text"]
         assert result["prompt_version"] == YTAPIVideoExtractor.PROMPT_VERSION
 
 
@@ -142,7 +182,7 @@ class TestGetChapters:
             "video_id": "vid_ext_test",
             "prompt_version": YTAPIVideoExtractor.PROMPT_VERSION,
             "video_last_updated": BATCH_TIME.isoformat(),
-            "text": CANNED_LLM_RESPONSE,
+            "text": CANNED_LEGACY_TEXT,
             "extracted_at": BATCH_TIME.isoformat(),
         }
         write_json("youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json", cached)
@@ -192,10 +232,11 @@ class TestExtractorGetEdgeCases:
         }
         write_json("youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json", cached)
 
-        with patch.object(YTAPIVideoExtractor, "ask_llm", return_value=CANNED_LLM_RESPONSE):
+        responses = [CANNED_EXTRACT_RESPONSE, CANNED_EVAL_RESPONSE]
+        with patch.object(YTAPIVideoExtractor, "ask_llm", side_effect=responses):
             result = YTAPIVideoExtractor.get(video)
 
-        assert result["text"] == CANNED_LLM_RESPONSE
+        assert "FORMAT:" in result["text"]
 
 
 # ---------------------------------------------------------------------------

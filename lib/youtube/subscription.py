@@ -46,6 +46,7 @@ class Subscription:
     @classmethod
     def get_hot(cls) -> Generator[Subscription, None, None]:
         from youtube import get_youtube_client
+        from youtube.client import API_RETRIES
         youtube = get_youtube_client()
         request = youtube.subscriptions().list(
             part="contentDetails,snippet",
@@ -53,7 +54,7 @@ class Subscription:
         )
 
         while request:
-            response = request.execute()
+            response = request.execute(num_retries=API_RETRIES)
             for item in to_obj(response['items']):
                 data = cls.update_from_data(item)
                 yield cls(**data)
@@ -89,6 +90,7 @@ class Subscription:
     @classmethod
     def update_all(cls):
         from youtube import get_youtube_client
+        from youtube.client import API_RETRIES
         youtube = get_youtube_client()
         request = youtube.subscriptions().list(
             part="contentDetails,snippet",
@@ -99,7 +101,7 @@ class Subscription:
 
         channel_ids = []
         while request:
-            response = request.execute()
+            response = request.execute(num_retries=API_RETRIES)
             for item in to_obj(response['items']):
                 data = cls.update_from_data(item)
                 channel_ids.append(data['channel_id'])

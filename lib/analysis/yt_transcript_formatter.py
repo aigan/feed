@@ -154,8 +154,8 @@ Transcript chunk:
                 "transcript_chunk": chunk,
                 "extra_instructions": instructions,
             },
-            model="gpt-4.1-mini",
-            temperature=0.8,
+            model="gpt-5-mini",
+            reasoning_effort="medium",
         )
 
         chunk_dir = cls.get_transcript_chunk_dir(video.video_id)
@@ -371,8 +371,8 @@ HEADINGS:
             {
                 'headings': headings_text,
             },
-            model = 'gpt-4.1',
-            temperature = 1,
+            model='gpt-5-mini',
+            reasoning_effort="low",
         )
         headings_file.write_text(text)
         print(text)

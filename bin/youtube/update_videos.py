@@ -1,4 +1,7 @@
 #!/bin/env python
+import youtube.client
+youtube.client.API_RETRIES = 3
+
 from youtube import Subscription, Channel, Video
 from pprint import pprint
 from itertools import islice

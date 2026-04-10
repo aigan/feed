@@ -1,6 +1,7 @@
 import os
 
 SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"]
+API_RETRIES = 0
 ROOT = os.environ["PROJECT_ROOT"]
 TOKEN_FILE = ROOT + "/var/token.json"
 def get_youtube_client():

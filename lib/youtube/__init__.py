@@ -7,3 +7,4 @@ from .ratings import Rating
 from .subscription import Subscription
 from .transcript import Transcript
 from .video import Video
+from .video_iterator import iterate_videos

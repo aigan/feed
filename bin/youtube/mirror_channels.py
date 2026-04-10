@@ -1,4 +1,7 @@
 #!/bin/env python
+import youtube.client
+youtube.client.API_RETRIES = 3
+
 from itertools import islice
 
 from context import Context
