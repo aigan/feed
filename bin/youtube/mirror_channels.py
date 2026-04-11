@@ -2,14 +2,19 @@
 import youtube.client
 youtube.client.API_RETRIES = 3
 
+import argparse
 from itertools import islice
 
 from context import Context
 from youtube import Subscription
 
+parser = argparse.ArgumentParser(description='Mirror channel uploads for hot subscriptions.')
+parser.add_argument('--limit', type=int, default=None, help='Process at most N subscriptions (default: no limit)')
+args = parser.parse_args()
+
 batch_time = Context.get().batch_time
 
-for subscr in islice(Subscription.get_hot(), 2):
+for subscr in islice(Subscription.get_hot(), args.limit):
     channel = subscr.channel
     print(f"\n\n## {channel.title}: {channel.last_uploads_mirror}\n")
     if channel.last_uploads_mirror != None: continue

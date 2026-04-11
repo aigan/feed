@@ -2,12 +2,18 @@
 import youtube.client
 youtube.client.API_RETRIES = 3
 
-from youtube import Subscription, Channel, Video
-from pprint import pprint
+import argparse
 from itertools import islice
+from pprint import pprint
+
+from youtube import Subscription, Channel, Video
 
 from context import Context
 batch_time = Context.get().batch_time
+
+parser = argparse.ArgumentParser(description='Update video lists for hot subscriptions.')
+parser.add_argument('--limit', type=int, default=None, help='Process at most N subscriptions (default: no limit)')
+args = parser.parse_args()
 
 print(f"Update video list. Batch {batch_time}\n")
 
@@ -33,8 +39,7 @@ print(f"Update video list. Batch {batch_time}\n")
 #    print(f"Video {video.video_id} from {video.published_at}:\n{video.title}\n")
 
 
-#for subscr in islice(Subscription.get_hot(), 3):
-for subscr in Subscription.get_hot():
+for subscr in islice(Subscription.get_hot(), args.limit):
     channel = subscr.channel
     print(f"## {channel.title} - {channel.channel_id}")
     channel.mirror_uploads()

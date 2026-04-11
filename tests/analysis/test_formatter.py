@@ -1,3 +1,8 @@
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import pytest
+
 from analysis.yt_transcript_formatter import YTTranscriptFormatter
 
 # ---------------------------------------------------------------------------
@@ -193,3 +198,141 @@ class TestGetLastParagraphsEdgeCases:
         result = YTTranscriptFormatter.get_last_paragraphs(text, count=2)
         assert len(result) == 1
         assert result[0] == "42: Only one paragraph."
+
+
+# ---------------------------------------------------------------------------
+# YTTranscriptFormatter.get  — Result + force propagation
+# ---------------------------------------------------------------------------
+
+def _make_video(video_id="vid_test"):
+    return SimpleNamespace(video_id=video_id, title="Test Video")
+
+
+def _sample_transcript():
+    return {
+        "metadata": {"language_code": "en", "is_generated": True, "segment_count": 1, "video_id": "vid_test"},
+        "segments": [{"start": 0.0, "duration": 1.0, "text": "hello"}],
+    }
+
+
+class TestFormatterGetResult:
+    """YTTranscriptFormatter.get() returns a Result with text and did_work."""
+
+    def test_cached_transcript_txt_returns_did_work_false(self, ctx, write_raw):
+        write_raw("youtube/videos/active/vi/vid_test/processed/transcript.txt", "cached body")
+        video = _make_video()
+        result = YTTranscriptFormatter.get(video)
+        assert result.text == "cached body"
+        assert result.did_work is False
+
+    def test_cached_marker_returns_empty_text_did_work_false(self, ctx, write_json):
+        write_json("youtube/videos/active/vi/vid_test/transcript-unavailable.json",
+                   {"reason": "TranscriptsDisabled", "checked_at": "2025-01-01"})
+        video = _make_video()
+        # Mimic Video.transcript() behaviour: marker exists → None
+        video.transcript = lambda force=False: None
+        result = YTTranscriptFormatter.get(video)
+        assert result.text == ""
+        assert result.did_work is False
+
+    def test_fresh_unavailable_returns_empty_text_did_work_true(self, ctx):
+        video = _make_video()
+        # No marker on disk, video.transcript() returns None (fresh discovery
+        # of unavailability — Video.transcript() will have just written the marker).
+        # We simulate by patching transcript to return None *after* the marker
+        # check has been performed by the formatter (which sees no marker).
+        called = {"n": 0}
+
+        def fake_transcript(force=False):
+            # Simulate Video.transcript writing the marker as part of its work.
+            from youtube import Video
+            marker = Video.get_active_dir(video.video_id) / "transcript-unavailable.json"
+            marker.parent.mkdir(parents=True, exist_ok=True)
+            marker.write_text('{"reason": "x"}')
+            called["n"] += 1
+            return None
+
+        video.transcript = fake_transcript
+        result = YTTranscriptFormatter.get(video)
+        assert result.text == ""
+        assert result.did_work is True
+        assert called["n"] == 1
+
+    def test_newly_processed_returns_did_work_true(self, ctx, write_json):
+        video = _make_video()
+        write_json("youtube/videos/active/vi/vid_test/transcript.json", _sample_transcript())
+        # Mock chunking + headings to avoid hitting an LLM.
+        with patch.object(YTTranscriptFormatter, "get_chunk", side_effect=["0: hello\n", None]), \
+             patch.object(YTTranscriptFormatter, "get_cleanup_headings", return_value=""):
+            video.transcript = lambda force=False: _sample_transcript()
+            result = YTTranscriptFormatter.get(video)
+        assert result.did_work is True
+        assert result.text  # non-empty
+        out = ctx / "youtube/videos/active/vi/vid_test/processed/transcript.txt"
+        assert out.exists()
+
+
+class TestFormatterForcePropagation:
+    """force=True must ignore caches at every level."""
+
+    def test_get_force_ignores_cached_transcript_txt(self, ctx, write_raw):
+        write_raw("youtube/videos/active/vi/vid_test/processed/transcript.txt", "old body")
+        video = _make_video()
+        video.transcript = lambda force=False: _sample_transcript()
+        with patch.object(YTTranscriptFormatter, "get_chunk", side_effect=["0: new\n", None]) as mock_chunk, \
+             patch.object(YTTranscriptFormatter, "get_cleanup_headings", return_value="") as mock_head:
+            result = YTTranscriptFormatter.get(video, force=True)
+        assert result.did_work is True
+        assert "old body" not in result.text
+        # force was forwarded to the inner caches
+        mock_chunk.assert_called()
+        for call in mock_chunk.call_args_list:
+            assert call.kwargs.get("force") is True
+        mock_head.assert_called_once()
+        assert mock_head.call_args.kwargs.get("force") is True
+
+    def test_get_force_passes_to_video_transcript(self, ctx):
+        video = _make_video()
+        captured = {}
+
+        def fake_transcript(force=False):
+            captured["force"] = force
+            return _sample_transcript()
+
+        video.transcript = fake_transcript
+        with patch.object(YTTranscriptFormatter, "get_chunk", side_effect=["0: x\n", None]), \
+             patch.object(YTTranscriptFormatter, "get_cleanup_headings", return_value=""):
+            YTTranscriptFormatter.get(video, force=True)
+        assert captured["force"] is True
+
+    def test_get_chunk_force_false_uses_cache(self, ctx, write_raw):
+        write_raw("youtube/videos/active/vi/vid_test/processed/transcript_chunks/000.txt", "cached chunk")
+        video = _make_video()
+        with patch.object(YTTranscriptFormatter, "run_chunk") as mock_run:
+            text = YTTranscriptFormatter.get_chunk(video, _sample_transcript(), 0)
+        assert text == "cached chunk"
+        mock_run.assert_not_called()
+
+    def test_get_chunk_force_true_ignores_cache(self, ctx, write_raw):
+        write_raw("youtube/videos/active/vi/vid_test/processed/transcript_chunks/000.txt", "cached chunk")
+        video = _make_video()
+        with patch.object(YTTranscriptFormatter, "run_chunk", return_value="fresh chunk") as mock_run:
+            text = YTTranscriptFormatter.get_chunk(video, _sample_transcript(), 0, force=True)
+        assert text == "fresh chunk"
+        mock_run.assert_called_once()
+
+    def test_get_cleanup_headings_force_false_uses_cache(self, ctx, write_raw):
+        write_raw("youtube/videos/active/vi/vid_test/processed/headings.txt", "cached headings")
+        video = _make_video()
+        with patch.object(YTTranscriptFormatter, "run_cleanup_headings") as mock_run:
+            text = YTTranscriptFormatter.get_cleanup_headings(video, "transcript text")
+        assert text == "cached headings"
+        mock_run.assert_not_called()
+
+    def test_get_cleanup_headings_force_true_ignores_cache(self, ctx, write_raw):
+        write_raw("youtube/videos/active/vi/vid_test/processed/headings.txt", "cached headings")
+        video = _make_video()
+        with patch.object(YTTranscriptFormatter, "run_cleanup_headings", return_value="fresh headings") as mock_run:
+            text = YTTranscriptFormatter.get_cleanup_headings(video, "transcript text", force=True)
+        assert text == "fresh headings"
+        mock_run.assert_called_once()

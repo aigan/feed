@@ -1,6 +1,7 @@
 #!/bin/env python
 
 import argparse
+from itertools import islice
 
 from youtube import Video, iterate_videos
 from analysis import YTAPIVideoExtractor, YTTranscriptFormatter
@@ -58,6 +59,7 @@ def process_video(video, force=False):
 parser = argparse.ArgumentParser(description='Process YouTube videos.')
 parser.add_argument('source_id', help='Video ID, channel ID (UC...), or playlist ID (PL...)')
 parser.add_argument('--force', action='store_true', help='Re-process even if output files exist')
+parser.add_argument('--limit', type=int, default=None, help='Process at most N videos (default: no limit)')
 args = parser.parse_args()
 
 processed = 0
@@ -65,7 +67,7 @@ skipped = 0
 errors = 0
 
 try:
-    for video in iterate_videos(args.source_id):
+    for video in islice(iterate_videos(args.source_id), args.limit):
         try:
             result = process_video(video, force=args.force)
             if result == 'skip':

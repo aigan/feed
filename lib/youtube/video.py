@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pprint import pprint
 from typing import Optional
 
@@ -74,16 +74,30 @@ class Video:
         else:
             return f"{minutes}:{seconds:02d}"
 
-    def transcript(self):
-        from youtube import Transcript
-        data_file = self.__class__.get_active_dir(self.video_id) / "transcript.json"
-        print(f"Get video transcript from {data_file}")
-        if data_file.exists():
-            return json.loads(data_file.read_text())
-        print("download transcript")
-        transcript = Transcript.download(self.video_id)
-        dump_json(data_file, transcript)
-        return transcript
+    def transcript(self, force=False):
+        from youtube import Transcript, TranscriptUnavailable
+        active_dir = self.__class__.get_active_dir(self.video_id)
+        data_file = active_dir / "transcript.json"
+        marker_file = active_dir / "transcript-unavailable.json"
+
+        if not force:
+            if marker_file.exists():
+                return None
+            if data_file.exists():
+                return json.loads(data_file.read_text())
+
+        print(f"download transcript {self.video_id}")
+        try:
+            data = Transcript.download(self.video_id)
+        except TranscriptUnavailable as e:
+            dump_json(marker_file, {
+                'checked_at': datetime.now(timezone.utc).isoformat(),
+                'reason': e.reason,
+            })
+            return None
+
+        dump_json(data_file, data)
+        return data
 
     @classmethod
     def get(cls, video_id):
@@ -131,13 +145,13 @@ class Video:
     @classmethod
     def retrieve(cls, video_id):
         from youtube import get_youtube_client
-        from youtube.client import API_RETRIES
+        from youtube.client import execute_api
         youtube = get_youtube_client()
         request = youtube.videos().list(
             id=video_id,
             part="snippet,contentDetails,liveStreamingDetails,paidProductPlacementDetails,recordingDetails,statistics,status,topicDetails",
         )
-        response = request.execute(num_retries=API_RETRIES)
+        response = execute_api(request, 'videos.list')
         if not response.get('items'):
             raise VideoUnavailableError(video_id)
         item = to_obj(response['items'][0])

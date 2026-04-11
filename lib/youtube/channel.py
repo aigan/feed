@@ -123,7 +123,7 @@ class Channel:
 
     def retrieve_uploads(self) -> Generator[dict, None, None]:
         from youtube import HttpError, get_youtube_client
-        from youtube.client import API_RETRIES
+        from youtube.client import execute_api
         if self.uploads_count == 0:
             print("No uploads to retrieve")
             return
@@ -137,7 +137,7 @@ class Channel:
         )
         try:
             while request:
-                response = request.execute(num_retries=API_RETRIES)
+                response = execute_api(request, 'playlistItems.list')
                 #print(f"Batch with {len(response['items'])}")
                 for item in response['items']: yield item
                 request = youtube.playlistItems().list_next(request, response)
@@ -263,13 +263,14 @@ class Channel:
     @classmethod
     def retrieve(cls, channel_id) -> dict:
         from youtube import get_youtube_client
-        from youtube.client import API_RETRIES
+        from youtube.client import execute_api
         youtube = get_youtube_client()
 
-        response = youtube.channels().list(
+        request = youtube.channels().list(
             part="brandingSettings,contentDetails,localizations,statistics,status,topicDetails,snippet",
             id=channel_id,
-        ).execute(num_retries=API_RETRIES)
+        )
+        response = execute_api(request, 'channels.list')
         item = to_obj(response['items'][0])
 
         #sections_response = youtube.channelSections().list(

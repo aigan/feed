@@ -1,7 +1,8 @@
 #!/bin/env python
+import argparse
 import json
 import sqlite3
-import sys
+from itertools import islice
 
 from analysis.description_filter import DescriptionFilter
 from youtube import Channel, Subscription, Video
@@ -45,15 +46,18 @@ def channel_stats(channel_id):
 
 
 def main():
-    single_channel = sys.argv[1] if len(sys.argv) > 1 else None
+    parser = argparse.ArgumentParser(description='Show block-index stats per channel.')
+    parser.add_argument('channel_id', nargs='?', help='Channel ID (optional; default: all subscriptions)')
+    parser.add_argument('--limit', type=int, default=None, help='Process at most N channels (default: no limit)')
+    args = parser.parse_args()
 
-    if single_channel:
-        subs = [type('Sub', (), {'channel_id': single_channel, 'title': single_channel})]
+    if args.channel_id:
+        subs = [type('Sub', (), {'channel_id': args.channel_id, 'title': args.channel_id})]
     else:
         subs = sorted(Subscription.get_all(), key=lambda s: s.title)
 
     rows = []
-    for sub in subs:
+    for sub in islice(subs, args.limit):
         stats = channel_stats(sub.channel_id)
         if not stats:
             continue

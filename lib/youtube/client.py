@@ -1,9 +1,21 @@
 import os
 
+from rate_limiter import RateLimiter
+from rate_limits import DATA_API_COSTS, YOUTUBE_DATA_API
+
 SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"]
 API_RETRIES = 0
 ROOT = os.environ["PROJECT_ROOT"]
 TOKEN_FILE = ROOT + "/var/token.json"
+
+
+def execute_api(request, operation):
+    """Wrap a googleapiclient request.execute() with rate-limit accounting."""
+    cost = DATA_API_COSTS.get(operation, 1)
+    with RateLimiter.get().acquire(YOUTUBE_DATA_API, cost=cost):
+        return request.execute(num_retries=API_RETRIES)
+
+
 def get_youtube_client():
     """Builds an authenticated YouTube API client."""
     import google_auth_oauthlib.flow

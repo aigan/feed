@@ -1,8 +1,32 @@
 from datetime import datetime
-from pprint import pprint
 
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import IpBlocked, RequestBlocked
+
+from rate_limiter import RateLimiter
+from rate_limits import YOUTUBE_TIMEDTEXT
+
+
+class TranscriptUnavailable(Exception):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def _run_timedtext(video_id, fn):
+    """Run a timedtext API call under the rate limiter, mapping errors."""
+    ticket = RateLimiter.get().acquire(YOUTUBE_TIMEDTEXT)
+    try:
+        result = fn()
+    except (IpBlocked, RequestBlocked) as e:
+        ticket.blocked()
+        print(f'[blocked] {video_id}: {e}')
+        raise
+    except Exception as e:
+        ticket.error(e)
+        raise TranscriptUnavailable(type(e).__name__) from e
+    ticket.ok()
+    return result
 
 
 class Transcript:
@@ -10,62 +34,32 @@ class Transcript:
 
     @classmethod
     def get_best(cls, video_id):
-        try:
-            print("Get transcripts")
+        def _list():
             ytt_api = YouTubeTranscriptApi()
-            transcript_list = ytt_api.list(video_id)
+            return list(ytt_api.list(video_id))
 
-            # Get all available transcript languages
-            available_transcripts = list(transcript_list)
+        available_transcripts = _run_timedtext(video_id, _list)
 
-            # Print available options for debugging
-            print("Available transcripts:")
-            for t in available_transcripts:
-                print(f"{t.language_code}: {t.language} (Auto-generated: {t.is_generated})")
+        english_variants = [t for t in available_transcripts
+            if t.language_code.startswith('en')]
 
-            # Prioritize English variants
-            english_variants = [t for t in available_transcripts
-                if t.language_code.startswith('en')]
-
-            if english_variants:
-                # Prefer manually created over auto-generated
-                manual_transcripts = [t for t in english_variants if not t.is_generated]
-                if manual_transcripts:
-                    transcript = manual_transcripts[0]
-                else:
-                    transcript = english_variants[0]
+        if english_variants:
+            manual_transcripts = [t for t in english_variants if not t.is_generated]
+            if manual_transcripts:
+                transcript = manual_transcripts[0]
             else:
-                # No English transcript, take the first available
-                transcript = available_transcripts[0]
+                transcript = english_variants[0]
+        else:
+            transcript = available_transcripts[0]
 
-            print(f"Selected transcript: {transcript.language_code} ({transcript.language})")
-            return transcript
-
-        except (IpBlocked, RequestBlocked):
-            raise
-        except Exception as e:
-            print(f'[{type(e).__name__}] {video_id}')
-            return None
+        print(f'Selected transcript: {transcript.language_code} ({transcript.language})')
+        return transcript
 
     @classmethod
     def download(cls, video_id):
-        print("Download transcript")
         transcript = cls.get_best(video_id)
-        if transcript == None:
-            return None
+        transcript_data = _run_timedtext(video_id, transcript.fetch)
 
-        transcript_data = transcript.fetch()
-
-        print(f"Transcript language: {transcript.language}")
-        print(f"Transcript is generated: {transcript.is_generated}")
-        print(f"Found {len(transcript_data)} transcript segments")
-
-        # Print first few segments as example
-        print("\nSample of transcript content:")
-        for segment in transcript_data[:3]:
-            pprint(segment)
-
-        # Use the built-in to_raw_data method to convert to JSON-serializable format
         segments = transcript_data.to_raw_data()
 
         return {

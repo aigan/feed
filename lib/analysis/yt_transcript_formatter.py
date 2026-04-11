@@ -1,7 +1,10 @@
+from collections import namedtuple
 from pprint import pprint
 from typing import List
 
 from analysis import Processor
+
+Result = namedtuple('Result', ['text', 'did_work'])
 
 
 class YTTranscriptFormatter(Processor):
@@ -10,32 +13,37 @@ class YTTranscriptFormatter(Processor):
     STEP_SIZE = 370
 
     @classmethod
-    def get(cls, video):
+    def get(cls, video, force=False):
         from youtube import Video
         transcript_file = Video.get_processed_dir(video.video_id) / "transcript.txt"
-        if transcript_file.exists(): return transcript_file.read_text()
+        if transcript_file.exists() and not force:
+            return Result(text=transcript_file.read_text(), did_work=False)
 
-        transcript = video.transcript()
+        marker_file = Video.get_active_dir(video.video_id) / "transcript-unavailable.json"
+        had_marker = marker_file.exists() and not force
+
+        transcript = video.transcript(force=force)
         if transcript is None:
             print("[No transcript]")
-            return ""
+            return Result(text="", did_work=not had_marker)
 
         chunks = []
         chunk_id = 0
 
         while True:
-            chunk_text = cls.get_chunk(video, transcript, chunk_id)
+            chunk_text = cls.get_chunk(video, transcript, chunk_id, force=force)
             if chunk_text is None:
                 break
             chunks.append(chunk_text)
             chunk_id +=1
 
         transcript_text = cls.merge_transcript_chunks(chunks)
-        headings_text = cls.get_cleanup_headings(video, transcript_text)
+        headings_text = cls.get_cleanup_headings(video, transcript_text, force=force)
         result_text = cls.insert_headings_in_transcript(transcript_text, headings_text)
 
+        transcript_file.parent.mkdir(parents=True, exist_ok=True)
         transcript_file.write_text(result_text)
-        return result_text
+        return Result(text=result_text, did_work=True)
 
     @classmethod
     def extract_transcript_segment(cls, transcript, offset):
@@ -55,9 +63,10 @@ class YTTranscriptFormatter(Processor):
         return next_chunk_offset >= len(transcript['segments'])
 
     @classmethod
-    def get_chunk(cls, video, transcript, chunk_id):
+    def get_chunk(cls, video, transcript, chunk_id, force=False):
         chunk_file = cls.get_transcript_chunk_dir(video.video_id) / f'{chunk_id:03}.txt'
-        if chunk_file.exists(): return chunk_file.read_text()
+        if chunk_file.exists() and not force:
+            return chunk_file.read_text()
         return cls.run_chunk(video, transcript, chunk_id)
 
     @classmethod
@@ -329,10 +338,11 @@ Transcript chunk:
         return result
 
     @classmethod
-    def get_cleanup_headings(cls, video, transcript_text: str):
+    def get_cleanup_headings(cls, video, transcript_text: str, force=False):
         from youtube import Video
         headings_file = Video.get_processed_dir(video.video_id) / "headings.txt"
-        if headings_file.exists(): return headings_file.read_text()
+        if headings_file.exists() and not force:
+            return headings_file.read_text()
         return cls.run_cleanup_headings(video, transcript_text)
 
     @classmethod

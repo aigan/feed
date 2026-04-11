@@ -3,6 +3,9 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from rate_limiter import RateLimiter
+from rate_limits import YOUTUBE_MEDIA
+
 import config
 from util import dump_json
 
@@ -236,11 +239,12 @@ class Media:
             f'https://www.youtube.com/watch?v={video_id}',
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        with RateLimiter.get().acquire(YOUTUBE_MEDIA):
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+
         if result.returncode != 0:
             print(f'yt-dlp error: {result.stderr}')
             return None
 
-        # Find the downloaded file
         paths = cls._find_in_dir(dest_dir, video_id)
         return paths[0] if paths else None

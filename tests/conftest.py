@@ -7,6 +7,19 @@ import pytest
 BATCH_TIME = datetime(2025, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_rate_limiter(tmp_path_factory, monkeypatch):
+    """Redirect the RateLimiter singleton to a per-test tmp DB."""
+    import config
+
+    monkeypatch.setattr(config, 'DATA_DIR', tmp_path_factory.mktemp('rl'))
+
+    from rate_limiter import RateLimiter
+    RateLimiter.reset()
+    yield
+    RateLimiter.reset()
+
+
 @pytest.fixture
 def ctx(tmp_path):
     """Patch DATA_DIR to tmp_path, set deterministic Context.batch_time."""

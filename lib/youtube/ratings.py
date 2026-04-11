@@ -5,7 +5,7 @@ from pprint import pprint
 import config
 from util import dump_json, from_obj, to_obj
 from youtube import get_youtube_client
-from youtube.client import API_RETRIES
+from youtube.client import execute_api
 
 
 class Rating:
@@ -58,7 +58,7 @@ class Rating:
         video_ids = []
 
         while request:
-            response = request.execute(num_retries=API_RETRIES)
+            response = execute_api(request, 'videos.list')
             found_existing = False
 
             for item in to_obj(response['items']):

@@ -1,6 +1,7 @@
 #!/bin/env python
+import argparse
 import json
-import sys
+from itertools import islice
 
 from analysis import DescriptionFilter
 from context import Context
@@ -10,7 +11,7 @@ from youtube import Channel, Subscription, Video
 batch_time = Context.get().batch_time
 
 
-def process_channel(channel_id):
+def process_channel(channel_id, limit=None):
     DescriptionFilter.index_channel(channel_id)
 
     uploads_dir = Channel.get_active_dir(channel_id) / "uploads"
@@ -25,7 +26,7 @@ def process_channel(channel_id):
             video_ids.append(video_id)
 
     print(f"  Filtering {len(video_ids)} videos")
-    for i, video_id in enumerate(video_ids):
+    for i, video_id in enumerate(islice(video_ids, limit)):
         try:
             video = Video.get(video_id)
             description = DescriptionFilter.strip(video.description, video, channel_id)
@@ -47,12 +48,16 @@ def process_channel(channel_id):
     print("  Done")
 
 
-if len(sys.argv) > 1:
-    channel_id = sys.argv[1]
-    print(f"Filtering descriptions for channel {channel_id}")
-    process_channel(channel_id)
+parser = argparse.ArgumentParser(description='Filter video descriptions via block index.')
+parser.add_argument('channel_id', nargs='?', help='Channel ID (optional; default: all subscriptions)')
+parser.add_argument('--limit', type=int, default=None, help='Process at most N items (default: no limit)')
+args = parser.parse_args()
+
+if args.channel_id:
+    print(f"Filtering descriptions for channel {args.channel_id}")
+    process_channel(args.channel_id, limit=args.limit)
 else:
-    for sub in Subscription.get_all():
+    for sub in islice(Subscription.get_all(), args.limit):
         print(f"\n{sub.title} ({sub.channel_id})")
         process_channel(sub.channel_id)
 

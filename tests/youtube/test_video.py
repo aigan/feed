@@ -453,3 +453,143 @@ class TestVideoTranscriptEdgeCases:
         video = _make_video("PT5M", video_id="vid_ABCDEF")
         with pytest.raises(json.JSONDecodeError):
             video.transcript()
+
+
+# ---------------------------------------------------------------------------
+# Video.transcript  — dependency ownership (marker, force, never-delete-first)
+# ---------------------------------------------------------------------------
+
+def _sample_transcript_data(video_id="vid_ABCDEF"):
+    return {
+        "metadata": {
+            "language": "English", "language_code": "en",
+            "is_generated": True, "segment_count": 1, "video_id": video_id,
+            "downloaded_at": "2025-01-01T00:00:00",
+        },
+        "segments": [{"text": "hi", "start": 0.0, "duration": 1.0}],
+    }
+
+
+class TestVideoTranscriptDependencyOwnership:
+    """Video.transcript() owns transcript.json and transcript-unavailable.json."""
+
+    def test_marker_present_returns_none_without_download(self, ctx, write_json):
+        write_json("youtube/videos/active/vi/vid_ABCDEF/transcript-unavailable.json",
+                   {"reason": "TranscriptsDisabled", "checked_at": "2025-01-01"})
+        video = _make_video("PT5M", video_id="vid_ABCDEF")
+        with patch("youtube.transcript.Transcript.download") as mock_dl:
+            result = video.transcript()
+        assert result is None
+        mock_dl.assert_not_called()
+
+    def test_json_present_returns_dict_without_download(self, ctx, write_json):
+        data = _sample_transcript_data()
+        write_json("youtube/videos/active/vi/vid_ABCDEF/transcript.json", data)
+        video = _make_video("PT5M", video_id="vid_ABCDEF")
+        with patch("youtube.transcript.Transcript.download") as mock_dl:
+            result = video.transcript()
+        assert result == data
+        mock_dl.assert_not_called()
+
+    def test_neither_present_downloads_and_writes_json(self, ctx):
+        video = _make_video("PT5M", video_id="vid_ABCDEF")
+        data = _sample_transcript_data()
+        with patch("youtube.transcript.Transcript.download", return_value=data):
+            result = video.transcript()
+        assert result == data
+        json_file = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript.json"
+        assert json_file.exists()
+        assert json.loads(json_file.read_text()) == data
+
+    def test_transcript_unavailable_writes_marker_and_returns_none(self, ctx):
+        from youtube.transcript import TranscriptUnavailable
+        video = _make_video("PT5M", video_id="vid_ABCDEF")
+        with patch(
+            "youtube.transcript.Transcript.download",
+            side_effect=TranscriptUnavailable("TranscriptsDisabled"),
+        ):
+            result = video.transcript()
+        assert result is None
+        marker = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript-unavailable.json"
+        assert marker.exists()
+        marker_data = json.loads(marker.read_text())
+        assert marker_data["reason"] == "TranscriptsDisabled"
+        assert "checked_at" in marker_data
+        json_file = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript.json"
+        assert not json_file.exists()
+
+    def test_ip_blocked_propagates_and_writes_nothing(self, ctx):
+        from youtube_transcript_api._errors import IpBlocked
+        video = _make_video("PT5M", video_id="vid_ABCDEF")
+        with patch(
+            "youtube.transcript.Transcript.download",
+            side_effect=IpBlocked("vid_ABCDEF"),
+        ):
+            with pytest.raises(IpBlocked):
+                video.transcript()
+        active = ctx / "youtube/videos/active/vi/vid_ABCDEF"
+        assert not (active / "transcript.json").exists()
+        assert not (active / "transcript-unavailable.json").exists()
+
+    def test_request_blocked_propagates_and_writes_nothing(self, ctx):
+        from youtube_transcript_api._errors import RequestBlocked
+        video = _make_video("PT5M", video_id="vid_ABCDEF")
+        with patch(
+            "youtube.transcript.Transcript.download",
+            side_effect=RequestBlocked("vid_ABCDEF"),
+        ):
+            with pytest.raises(RequestBlocked):
+                video.transcript()
+        active = ctx / "youtube/videos/active/vi/vid_ABCDEF"
+        assert not (active / "transcript.json").exists()
+
+    def test_force_bypasses_marker_and_redownloads(self, ctx, write_json):
+        write_json("youtube/videos/active/vi/vid_ABCDEF/transcript-unavailable.json",
+                   {"reason": "TranscriptsDisabled", "checked_at": "2025-01-01"})
+        video = _make_video("PT5M", video_id="vid_ABCDEF")
+        data = _sample_transcript_data()
+        with patch("youtube.transcript.Transcript.download", return_value=data) as mock_dl:
+            result = video.transcript(force=True)
+        assert result == data
+        mock_dl.assert_called_once_with("vid_ABCDEF")
+        json_file = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript.json"
+        assert json_file.exists()
+        assert json.loads(json_file.read_text()) == data
+
+    def test_force_bypasses_cached_json_and_overwrites_in_place(self, ctx, write_json):
+        old_data = _sample_transcript_data()
+        old_data["metadata"]["language"] = "OldLang"
+        write_json("youtube/videos/active/vi/vid_ABCDEF/transcript.json", old_data)
+        json_file = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript.json"
+
+        new_data = _sample_transcript_data()
+        new_data["metadata"]["language"] = "NewLang"
+
+        # Critical: when Transcript.download is called, the OLD file must still
+        # exist on disk — never delete first.
+        def fake_download(video_id):
+            assert json_file.exists(), "transcript.json was deleted before download"
+            assert json.loads(json_file.read_text())["metadata"]["language"] == "OldLang"
+            return new_data
+
+        video = _make_video("PT5M", video_id="vid_ABCDEF")
+        with patch("youtube.transcript.Transcript.download", side_effect=fake_download):
+            result = video.transcript(force=True)
+
+        assert result == new_data
+        assert json.loads(json_file.read_text())["metadata"]["language"] == "NewLang"
+
+    def test_force_with_ip_blocked_leaves_cached_json_intact(self, ctx, write_json):
+        from youtube_transcript_api._errors import IpBlocked
+        old_data = _sample_transcript_data()
+        old_data["metadata"]["language"] = "OldLang"
+        write_json("youtube/videos/active/vi/vid_ABCDEF/transcript.json", old_data)
+        json_file = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript.json"
+
+        video = _make_video("PT5M", video_id="vid_ABCDEF")
+        with patch("youtube.transcript.Transcript.download", side_effect=IpBlocked("vid_ABCDEF")):
+            with pytest.raises(IpBlocked):
+                video.transcript(force=True)
+
+        assert json_file.exists()
+        assert json.loads(json_file.read_text())["metadata"]["language"] == "OldLang"
