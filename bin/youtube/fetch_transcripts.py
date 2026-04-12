@@ -9,8 +9,11 @@ from youtube import iterate_videos
 
 
 def process_one(video, force=False):
+    from analysis.yt_transcript_formatter import Result
     print(f'[fetch] {video.video_id} {video.title}')
-    return YTTranscriptFormatter.get(video, force=force)
+    tr = YTTranscriptFormatter.get_transcript(video, force=force)
+    hd = YTTranscriptFormatter.get_headings(video, force=force)
+    return Result(text=tr.text, did_work=tr.did_work or hd.did_work)
 
 
 def run_batch(source_id, force=False, limit=None):

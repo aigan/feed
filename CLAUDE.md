@@ -16,7 +16,7 @@ Python 3.13+ with direnv handling everything: venv activation, `PYTHONPATH=lib`,
 
 ## Development
 
-**Use TDD:** Write or update tests first to define expected behavior, verify they fail, then implement. Run the full test suite before considering work done.
+**Use TDD:** Write or update tests first to define expected behavior, verify they fail, then implement. Run the full test suite before considering work done. Always run with timout of max 20 seconds.
 
 ## Architecture Notes
 
@@ -27,3 +27,5 @@ These are non-obvious patterns not covered by STYLE.md:
 - **Channel schema migration**: `Channel` has a `SCHEMA_VERSION` constant. When loading from JSON, if the stored version is below current, `migrate()` runs a chain of versioned migration functions before use.
 
 - **YouTube special playlist prefixes**: `LL` = Liked, `WL` = Watch Later, `HL` = History. These are YouTube internal playlist IDs, not documented in the API.
+
+- **Video data layout**: Active videos live at `data/youtube/videos/active/<first-2-chars>/<video_id>/`. Processed artifacts (`headings_llm.txt`, `headings.txt`, `transcript.txt`, `ytapi_extracted.json`, …) are under `processed/`. Example: `POv1cOX8xUM` → `data/youtube/videos/active/PO/POv1cOX8xUM/`.

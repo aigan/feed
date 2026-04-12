@@ -77,7 +77,17 @@ class Transcript:
     @classmethod
     def process_timestamps(cls, description: str) -> str:
         import re
-        timestamp_pattern = re.compile(r'^(\d+:(?:\d+:)?\d+)(.*?)$', re.MULTILINE)
+        # YouTube's own chapter parser is extremely lenient about the
+        # symbols around the `MM:SS` / `HH:MM:SS` core — `0:00`, `[0:00]`,
+        # `(0:00)`, `[(00:00`, `▶ 0:00`, `0:00 -`, `0:00:`, etc. all get
+        # picked up. Mirror that: accept any run of non-alphanumeric noise
+        # before the timestamp and any run of non-alphanumeric noise
+        # (separators, brackets, bullets) after it. The title is whatever
+        # alphanumeric content remains on the line.
+        timestamp_pattern = re.compile(
+            r'^\W*((?:\d{1,2}:)?\d{1,2}:\d{2})\W*(.*?)$',
+            re.MULTILINE,
+        )
 
         def replace_timestamp(match):
             timestamp = match.group(1)
@@ -94,8 +104,14 @@ class Transcript:
             else:
                 return match.group(0)  # Return unchanged if format not recognized
 
-            # Format the new line with second offset
-            return f"[ts {total_seconds}] {timestamp}{rest_of_line}"
+            # Format the new line with second offset. The leading and
+            # separator noise matched by `\W*` is consumed by the match, so
+            # `rest_of_line` is the clean title (possibly empty). Insert a
+            # single space between the timestamp and the title only when a
+            # title exists.
+            if rest_of_line:
+                return f"[ts {total_seconds}] {timestamp} {rest_of_line}"
+            return f"[ts {total_seconds}] {timestamp}"
 
         # Apply the replacement
         processed_description = timestamp_pattern.sub(replace_timestamp, description)

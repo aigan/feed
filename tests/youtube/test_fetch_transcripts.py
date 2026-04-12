@@ -15,23 +15,46 @@ def make_video(video_id, title='Test'):
 
 
 class TestProcessOneDelegatesToFormatter:
-    """process_one is a thin wrapper around YTTranscriptFormatter.get."""
+    """process_one calls get_transcript + get_headings and aggregates."""
 
-    @patch('fetch_transcripts.YTTranscriptFormatter.get')
-    def test_returns_formatter_result(self, mock_get):
-        mock_get.return_value = Result(text='body', did_work=True)
+    @patch('fetch_transcripts.YTTranscriptFormatter.get_headings')
+    @patch('fetch_transcripts.YTTranscriptFormatter.get_transcript')
+    def test_returns_aggregated_result(self, mock_tr, mock_hd):
+        mock_tr.return_value = Result(text='body', did_work=True)
+        mock_hd.return_value = Result(text='0 ## h', did_work=False)
         video = make_video('vid0')
         result = process_one(video)
         assert result.text == 'body'
-        assert result.did_work is True
-        mock_get.assert_called_once_with(video, force=False)
+        assert result.did_work is True  # tr.did_work OR hd.did_work
+        mock_tr.assert_called_once_with(video, force=False)
+        mock_hd.assert_called_once_with(video, force=False)
 
-    @patch('fetch_transcripts.YTTranscriptFormatter.get')
-    def test_passes_force_through(self, mock_get):
-        mock_get.return_value = Result(text='body', did_work=True)
+    @patch('fetch_transcripts.YTTranscriptFormatter.get_headings')
+    @patch('fetch_transcripts.YTTranscriptFormatter.get_transcript')
+    def test_passes_force_through_to_both(self, mock_tr, mock_hd):
+        mock_tr.return_value = Result(text='body', did_work=True)
+        mock_hd.return_value = Result(text='0 ## h', did_work=True)
         video = make_video('vid0')
         process_one(video, force=True)
-        mock_get.assert_called_once_with(video, force=True)
+        mock_tr.assert_called_once_with(video, force=True)
+        mock_hd.assert_called_once_with(video, force=True)
+
+    @patch('fetch_transcripts.YTTranscriptFormatter.get_headings')
+    @patch('fetch_transcripts.YTTranscriptFormatter.get_transcript')
+    def test_did_work_true_if_only_headings_ran(self, mock_tr, mock_hd):
+        # Transcript cached, headings regenerated — overall did_work=True.
+        mock_tr.return_value = Result(text='body', did_work=False)
+        mock_hd.return_value = Result(text='0 ## h', did_work=True)
+        result = process_one(make_video('vid0'))
+        assert result.did_work is True
+
+    @patch('fetch_transcripts.YTTranscriptFormatter.get_headings')
+    @patch('fetch_transcripts.YTTranscriptFormatter.get_transcript')
+    def test_did_work_false_if_both_cached(self, mock_tr, mock_hd):
+        mock_tr.return_value = Result(text='body', did_work=False)
+        mock_hd.return_value = Result(text='0 ## h', did_work=False)
+        result = process_one(make_video('vid0'))
+        assert result.did_work is False
 
 
 class TestRunBatchCounters:

@@ -75,13 +75,13 @@ class Video:
             return f"{minutes}:{seconds:02d}"
 
     def transcript(self, force=False):
-        from youtube import Transcript, TranscriptUnavailable
+        from youtube import Transcript, TranscriptMeta, TranscriptUnavailable
         active_dir = self.__class__.get_active_dir(self.video_id)
         data_file = active_dir / "transcript.json"
-        marker_file = active_dir / "transcript-unavailable.json"
+        meta = TranscriptMeta(active_dir)
 
         if not force:
-            if marker_file.exists():
+            if meta.is_unavailable:
                 return None
             if data_file.exists():
                 return json.loads(data_file.read_text())
@@ -90,13 +90,12 @@ class Video:
         try:
             data = Transcript.download(self.video_id)
         except TranscriptUnavailable as e:
-            dump_json(marker_file, {
-                'checked_at': datetime.now(timezone.utc).isoformat(),
-                'reason': e.reason,
-            })
+            meta.mark_unavailable(e.reason)
             return None
 
+        meta.clear_unavailable()
         dump_json(data_file, data)
+        meta.stamp('transcript_downloaded_at')
         return data
 
     @classmethod

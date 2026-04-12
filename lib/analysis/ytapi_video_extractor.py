@@ -12,6 +12,10 @@ class YTAPIVideoExtractor(Processor):
         'person', 'organization', 'product', 'workseries',
         'technology', 'location', 'date', 'event',
     }
+    KNOWN_SECTIONS = frozenset({
+        'FORMAT', 'EPISODE', 'SPEAKERS', 'ENTITIES',
+        'CONCEPTS', 'RELATIONSHIPS', 'SOURCES',
+    })
 
     @classmethod
     def get(cls, video):
@@ -54,6 +58,8 @@ class YTAPIVideoExtractor(Processor):
         result = cls._assemble(video, context, extracted, source_trace, evaluation)
         cls._validate(result, context)
         dump_json(result_file, result)
+        raw_file = result_file.with_name('ytapi_extracted.txt')
+        raw_file.write_text(extracted.get('_raw', ''))
         return result
 
     # --- Input preparation ---
@@ -61,16 +67,15 @@ class YTAPIVideoExtractor(Processor):
     @classmethod
     def _build_context(cls, video):
         from analysis.description_filter import DescriptionFilter
-        from youtube import Transcript
 
         channel = video.channel
         description = DescriptionFilter.strip(video.description, video, video.channel_id)
         unique_length = DescriptionFilter.unique_length(video.description, video.channel_id)
         tags = DescriptionFilter.clean_tags(video.tags, channel.title)
 
-        # Extract timestamps mechanically from [ts SECONDS] markers
-        processed = Transcript.process_timestamps(description)
-        timestamps = cls._extract_timestamps(processed)
+        # Chapters are extracted mechanically from the raw description so
+        # that bracketed formats like `[00:00] Intro` survive DescriptionFilter.
+        description_timestamps = cls.extract_description_timestamps(video.description)
 
         categories = []
         if video.topic_details and 'topicCategories' in video.topic_details:
@@ -88,41 +93,72 @@ class YTAPIVideoExtractor(Processor):
             'duration_seconds': video.duration_seconds,
             'tags': tags,
             'categories': categories,
-            'timestamps': timestamps,
+            'description_timestamps': description_timestamps,
         }
 
     @classmethod
-    def _extract_timestamps(cls, processed_description):
-        """Extract (offset, description) pairs from [ts SECONDS] markers."""
+    def extract_description_timestamps(cls, description):
+        """Parse (offset, title) chapter markers straight from a video
+        description. Mechanical; no LLM, no cached JSON — the single source
+        of truth for description-derived timestamps."""
+        from youtube import Transcript
+
+        processed = Transcript.process_timestamps(description)
         pattern = re.compile(r'\[ts (\d+)\]\s+\d+:(?:\d+:)?\d+\s*(.*)')
-        timestamps = []
-        for match in pattern.finditer(processed_description):
+        result = []
+        for match in pattern.finditer(processed):
             offset = int(match.group(1))
             text = match.group(2).strip()
             if text:
-                timestamps.append({'offset': offset, 'description': text})
-        return timestamps
+                result.append({'offset': offset, 'description': text})
+        return result
 
     # --- Parsing helpers ---
 
     @classmethod
     def _parse_sections(cls, text):
-        """Split LLM output by === SECTION === delimiters."""
+        """Split LLM output into sections.
+
+        Primary format is `=== SECTION ===`. Also accepts `## SECTION` /
+        `### SECTION` and bare `SECTION:` when the token matches a known
+        section name, so drift from bigger models (markdown fence wrapping,
+        heading-style delimiters) doesn't silently drop content.
+        """
         sections = {}
         current = None
         lines = []
-        for line in text.splitlines():
-            match = re.match(r'^===\s*(.+?)\s*===$', line)
-            if match:
+        for raw_line in text.splitlines():
+            line = raw_line.strip()
+            if line.startswith('```'):
+                continue
+            name = cls._match_section_header(line)
+            if name is not None:
                 if current is not None:
                     sections[current] = '\n'.join(lines).strip()
-                current = match.group(1).upper()
+                current = name
                 lines = []
             else:
-                lines.append(line)
+                lines.append(raw_line)
         if current is not None:
             sections[current] = '\n'.join(lines).strip()
         return sections
+
+    _SECTION_HEADER_RE = re.compile(
+        r'^(?:===\s*(?P<fenced>.+?)\s*==='
+        r'|#{2,6}\s*(?P<heading>[A-Z][A-Z_ ]*?)\s*:?'
+        r'|(?P<colon>[A-Z][A-Z_ ]*?):)$'
+    )
+
+    @classmethod
+    def _match_section_header(cls, line):
+        match = cls._SECTION_HEADER_RE.match(line)
+        if not match:
+            return None
+        token = match.group('fenced') or match.group('heading') or match.group('colon')
+        name = token.strip().upper().replace(' ', '_')
+        if match.group('fenced'):
+            return name
+        return name if name in cls.KNOWN_SECTIONS else None
 
     @classmethod
     def _parse_pipe_lines(cls, text):
@@ -178,6 +214,7 @@ Focus on facts only — no confidence ratings, no quality judgments, no timestam
 {description_note}
 For each section, use the exact format shown.
 Use ` | ` (space-pipe-space) to separate fields. One entry per line.
+Output the sections as plain text. Do not wrap the output in markdown code fences. Do not add any preamble or trailing commentary.
 
 === FORMAT ===
 Select one or more: interview, discussion, monologue, presentation, documentary, essay, review, reaction, commentary, embed, letsplay, news, tutorial, vlog, compilation, livestream, skit, other
@@ -227,7 +264,7 @@ Categories: {categories}"""
                 'categories': ', '.join(context['categories']) if context['categories'] else 'None',
                 'description_note': description_note,
             },
-            model='gpt-5-mini',
+            profile='extract',
         )
 
         extracted = cls._parse_extraction(text)
@@ -237,6 +274,9 @@ Categories: {categories}"""
     @classmethod
     def _parse_extraction(cls, text):
         sections = cls._parse_sections(text)
+        if not (sections.keys() & cls.KNOWN_SECTIONS):
+            snippet = text[:500].replace('\n', ' ⏎ ')
+            print(f'  [warn] extract output had no recognizable sections: {snippet!r}')
 
         formats = []
         if 'FORMAT' in sections:
@@ -324,7 +364,7 @@ URL: URL if found, otherwise none"""
                 'entities': entities_text or '  (none)',
                 'sources': sources_text or '  (none)',
             },
-            model='gpt-5-mini',
+            profile='extract',
         )
 
         parsed = cls._parse_prefixed(text)
@@ -408,8 +448,7 @@ VERDICT: One of:
                 'concepts': concepts_text or '  (none)',
                 'source_trace': trace_text,
             },
-            model='gpt-5-mini',
-            reasoning_effort='medium',
+            profile='extract',
         )
 
         return cls._parse_evaluation(text)
@@ -486,7 +525,7 @@ VERDICT: One of:
     # --- Assembly, validation, output ---
 
     @classmethod
-    def _format_text(cls, extracted, timestamps):
+    def _format_text(cls, extracted, description_timestamps):
         """Generate backward-compatible text representation."""
         lines = []
 
@@ -508,8 +547,8 @@ VERDICT: One of:
             lines.append(f"{s['name']} | {s['role']} | {s['description']}")
         lines.append('')
 
-        lines.append('TIMESTAMPS:')
-        for ts in timestamps:
+        lines.append('DESCRIPTION TIMESTAMPS:')
+        for ts in description_timestamps:
             lines.append(f"{ts['offset']}: {ts['description']}")
         lines.append('')
 
@@ -550,13 +589,13 @@ VERDICT: One of:
                 if not (1 <= score <= 5):
                     print(f"  [warn] Value score '{key}' is {score}, expected 1-5")
 
-        timestamps = result.get('timestamps', [])
+        description_timestamps = context.get('description_timestamps', [])
         duration = context.get('duration_seconds')
-        for i, ts in enumerate(timestamps):
-            if i > 0 and ts['offset'] < timestamps[i - 1]['offset']:
-                print(f"  [warn] Timestamp {ts['offset']} is not ascending")
+        for i, ts in enumerate(description_timestamps):
+            if i > 0 and ts['offset'] < description_timestamps[i - 1]['offset']:
+                print(f"  [warn] Description timestamp {ts['offset']} is not ascending")
             if duration and ts['offset'] > duration:
-                print(f"  [warn] Timestamp {ts['offset']} exceeds duration {duration}")
+                print(f"  [warn] Description timestamp {ts['offset']} exceeds duration {duration}")
 
     @classmethod
     def _assemble(cls, video, context, extracted, source_trace, evaluation):
@@ -570,32 +609,20 @@ VERDICT: One of:
             'formats': extracted['formats'],
             'episode': extracted['episode'],
             'speakers': extracted['speakers'],
-            'timestamps': context['timestamps'],
             'entities': extracted['entities'],
             'concepts': extracted['concepts'],
             'relationships': extracted['relationships'],
             'sources': extracted['sources'],
             'source_trace': source_trace,
             'evaluation': evaluation,
-            'text': cls._format_text(extracted, context['timestamps']),
+            'text': cls._format_text(extracted, context['description_timestamps']),
         }
 
     @classmethod
-    def get_chapters(cls, video):
-        import re
-
-        result = cls.get(video)
-
-        # New structured format (v2+)
-        if result.get('timestamps'):
-            return [[ts['offset'], ts['description']] for ts in result['timestamps']]
-
-        # Legacy fallback (v1)
-        summary = result['text']
-        timestamp_match = re.search(r'TIMESTAMPS:(.*?)(\n\s*\n|\Z)', summary, re.DOTALL)
-        if not timestamp_match:
-            return []
-
-        chapter_re = r'(?P<seconds>\d+): (?P<description>.*?)(?=\n\d+:|$)'
-        chapter_matches = re.finditer(chapter_re, timestamp_match.group(1), re.DOTALL)
-        return [[int(m['seconds']), m['description'].strip()] for m in chapter_matches]
+    def get_description_timestamps(cls, video):
+        """Return [(offset_seconds, title), ...] parsed from video.description.
+        Mechanical extraction — no LLM, no cached JSON involvement."""
+        return [
+            [ts['offset'], ts['description']]
+            for ts in cls.extract_description_timestamps(video.description)
+        ]

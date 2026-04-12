@@ -471,11 +471,11 @@ def _sample_transcript_data(video_id="vid_ABCDEF"):
 
 
 class TestVideoTranscriptDependencyOwnership:
-    """Video.transcript() owns transcript.json and transcript-unavailable.json."""
+    """Video.transcript() owns transcript.json and transcript-meta.json."""
 
     def test_marker_present_returns_none_without_download(self, ctx, write_json):
-        write_json("youtube/videos/active/vi/vid_ABCDEF/transcript-unavailable.json",
-                   {"reason": "TranscriptsDisabled", "checked_at": "2025-01-01"})
+        write_json("youtube/videos/active/vi/vid_ABCDEF/transcript-meta.json",
+                   {"unavailable_reason": "TranscriptsDisabled", "checked_at": "2025-01-01"})
         video = _make_video("PT5M", video_id="vid_ABCDEF")
         with patch("youtube.transcript.Transcript.download") as mock_dl:
             result = video.transcript()
@@ -500,6 +500,11 @@ class TestVideoTranscriptDependencyOwnership:
         json_file = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript.json"
         assert json_file.exists()
         assert json.loads(json_file.read_text()) == data
+        # Successful download stamps the meta with the batch-time timestamp.
+        meta_file = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript-meta.json"
+        assert meta_file.exists()
+        meta_data = json.loads(meta_file.read_text())
+        assert "transcript_downloaded_at" in meta_data
 
     def test_transcript_unavailable_writes_marker_and_returns_none(self, ctx):
         from youtube.transcript import TranscriptUnavailable
@@ -510,11 +515,11 @@ class TestVideoTranscriptDependencyOwnership:
         ):
             result = video.transcript()
         assert result is None
-        marker = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript-unavailable.json"
-        assert marker.exists()
-        marker_data = json.loads(marker.read_text())
-        assert marker_data["reason"] == "TranscriptsDisabled"
-        assert "checked_at" in marker_data
+        meta_file = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript-meta.json"
+        assert meta_file.exists()
+        meta_data = json.loads(meta_file.read_text())
+        assert meta_data["unavailable_reason"] == "TranscriptsDisabled"
+        assert "checked_at" in meta_data
         json_file = ctx / "youtube/videos/active/vi/vid_ABCDEF/transcript.json"
         assert not json_file.exists()
 
@@ -529,7 +534,7 @@ class TestVideoTranscriptDependencyOwnership:
                 video.transcript()
         active = ctx / "youtube/videos/active/vi/vid_ABCDEF"
         assert not (active / "transcript.json").exists()
-        assert not (active / "transcript-unavailable.json").exists()
+        assert not (active / "transcript-meta.json").exists()
 
     def test_request_blocked_propagates_and_writes_nothing(self, ctx):
         from youtube_transcript_api._errors import RequestBlocked
@@ -544,8 +549,8 @@ class TestVideoTranscriptDependencyOwnership:
         assert not (active / "transcript.json").exists()
 
     def test_force_bypasses_marker_and_redownloads(self, ctx, write_json):
-        write_json("youtube/videos/active/vi/vid_ABCDEF/transcript-unavailable.json",
-                   {"reason": "TranscriptsDisabled", "checked_at": "2025-01-01"})
+        write_json("youtube/videos/active/vi/vid_ABCDEF/transcript-meta.json",
+                   {"unavailable_reason": "TranscriptsDisabled", "checked_at": "2025-01-01"})
         video = _make_video("PT5M", video_id="vid_ABCDEF")
         data = _sample_transcript_data()
         with patch("youtube.transcript.Transcript.download", return_value=data) as mock_dl:

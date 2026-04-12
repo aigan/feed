@@ -45,40 +45,6 @@ VALUE: insufficient metadata
 
 VERDICT: need_transcript"""
 
-# Legacy format used by get_chapters tests (cached results from old prompt versions)
-CANNED_LEGACY_TEXT = """\
-FORMAT:
-monologue [!]
-
-EPISODE:
-none [???]
-
-SPEAKERS:
-John Doe: host, tech reviewer [!]
-
-TIMESTAMPS:
-0: Introduction [!]
-120: Main topic [!]
-600: Conclusion [!]
-
-ENTITIES:
-John Doe (person) [!]
-
-CONCEPTS:
-testing: Software testing methodology [!]
-
-RELATIONSHIPS:
-John Doe + testing: Host discusses testing [!]
-
-SOURCES:
-none [???]
-
-VALUE:
-insight 3 [??]
-novelty 3 [??]
-quality 3 [??]
-delivery 3 [??]
-"""
 
 
 def _make_video_mock(**overrides):
@@ -172,26 +138,67 @@ class TestYTAPIVideoExtractorGet:
 
 
 # ---------------------------------------------------------------------------
-# YTAPIVideoExtractor.get_chapters
+# YTAPIVideoExtractor.get_description_timestamps
 # ---------------------------------------------------------------------------
 
-class TestGetChapters:
-    def test_parses_timestamps_from_llm_output(self, ctx, write_json):
-        video = _make_video_mock()
-        cached = {
-            "video_id": "vid_ext_test",
-            "prompt_version": YTAPIVideoExtractor.PROMPT_VERSION,
-            "video_last_updated": BATCH_TIME.isoformat(),
-            "text": CANNED_LEGACY_TEXT,
-            "extracted_at": BATCH_TIME.isoformat(),
-        }
-        write_json("youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json", cached)
+class TestGetDescriptionTimestamps:
+    def test_plain_mm_ss_format(self):
+        video = _make_video_mock(
+            description="0:00 Intro\n2:00 Main topic\n10:00 Outro"
+        )
+        chapters = YTAPIVideoExtractor.get_description_timestamps(video)
+        assert chapters == [
+            [0, "Intro"],
+            [120, "Main topic"],
+            [600, "Outro"],
+        ]
 
-        chapters = YTAPIVideoExtractor.get_chapters(video)
-        assert len(chapters) == 3
-        assert chapters[0] == [0, "Introduction [!]"]
-        assert chapters[1] == [120, "Main topic [!]"]
-        assert chapters[2] == [600, "Conclusion [!]"]
+    def test_bracketed_chapters_survive(self):
+        # Real-world case: `[00:00] Introduction` — the filter strips this
+        # block in some channels, so get_description_timestamps must read
+        # video.description directly rather than relying on the stripped
+        # context or a cached JSON.
+        description = (
+            "Some intro prose.\n\n"
+            "Chapters:\n"
+            "[00:00] Introduction\n"
+            "[01:28] About Facade\n"
+            "[08:36] The Design\n"
+            "[25:49] Closing\n"
+        )
+        video = _make_video_mock(description=description)
+        chapters = YTAPIVideoExtractor.get_description_timestamps(video)
+        assert chapters == [
+            [0, "Introduction"],
+            [88, "About Facade"],
+            [516, "The Design"],
+            [1549, "Closing"],
+        ]
+
+    def test_hhmmss_format(self):
+        video = _make_video_mock(description="0:00 Start\n1:02:30 Long section")
+        chapters = YTAPIVideoExtractor.get_description_timestamps(video)
+        assert chapters == [
+            [0, "Start"],
+            [3750, "Long section"],
+        ]
+
+    def test_ignores_cached_ytapi_extracted_json(self, ctx, write_json):
+        # Even if a stale cached JSON exists with different timestamps, the
+        # new contract reads straight from video.description.
+        video = _make_video_mock(description="0:00 Fresh intro\n5:00 Fresh middle")
+        write_json(
+            "youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json",
+            {
+                "video_id": "vid_ext_test",
+                "prompt_version": YTAPIVideoExtractor.PROMPT_VERSION,
+                "video_last_updated": BATCH_TIME.isoformat(),
+                "text": "IGNORED",
+                "extracted_at": BATCH_TIME.isoformat(),
+            },
+        )
+        chapters = YTAPIVideoExtractor.get_description_timestamps(video)
+        assert chapters == [[0, "Fresh intro"], [300, "Fresh middle"]]
 
 
 # ---------------------------------------------------------------------------
@@ -240,52 +247,101 @@ class TestExtractorGetEdgeCases:
 
 
 # ---------------------------------------------------------------------------
-# YTAPIVideoExtractor.get_chapters  — edge cases
+# YTAPIVideoExtractor.get_description_timestamps  — edge cases
 # ---------------------------------------------------------------------------
 
-class TestGetChaptersEdgeCases:
-    def test_no_timestamps_section_returns_empty(self, ctx, write_json):
+class TestGetDescriptionTimestampsEdgeCases:
+    def test_description_with_no_timestamps_returns_empty(self):
+        video = _make_video_mock(description="Just some text, no chapters at all.")
+        assert YTAPIVideoExtractor.get_description_timestamps(video) == []
+
+    def test_empty_description_returns_empty(self):
+        video = _make_video_mock(description="")
+        assert YTAPIVideoExtractor.get_description_timestamps(video) == []
+
+    def test_solo_timestamp_without_title_returns_empty(self):
+        # A bare `0:00` with nothing else on the line is not a useful
+        # chapter marker; the helper should ignore it.
+        video = _make_video_mock(description="0:00")
+        assert YTAPIVideoExtractor.get_description_timestamps(video) == []
+
+
+# ---------------------------------------------------------------------------
+# YTAPIVideoExtractor._parse_sections
+# ---------------------------------------------------------------------------
+
+
+EXPECTED_STRICT_SECTIONS = {
+    'FORMAT': 'monologue',
+    'EPISODE': 'none',
+    'SPEAKERS': 'John Doe | host | tech reviewer',
+    'ENTITIES': 'John Doe | person |',
+    'CONCEPTS': 'testing | Software testing methodology',
+    'RELATIONSHIPS': 'John Doe + testing | Host discusses testing',
+    'SOURCES': '',
+}
+
+
+class TestParseSections:
+    def test_strict_form_round_trips(self):
+        sections = YTAPIVideoExtractor._parse_sections(CANNED_EXTRACT_RESPONSE)
+        assert sections == EXPECTED_STRICT_SECTIONS
+
+    def test_markdown_fence_wrapper_plain(self):
+        wrapped = f"```\n{CANNED_EXTRACT_RESPONSE}\n```"
+        sections = YTAPIVideoExtractor._parse_sections(wrapped)
+        assert sections == EXPECTED_STRICT_SECTIONS
+
+    def test_markdown_fence_wrapper_with_language(self):
+        wrapped = f"```text\n{CANNED_EXTRACT_RESPONSE}\n```"
+        sections = YTAPIVideoExtractor._parse_sections(wrapped)
+        assert sections == EXPECTED_STRICT_SECTIONS
+
+    def test_colon_form_delimiters(self):
+        text = (
+            "FORMAT:\nmonologue\n\n"
+            "EPISODE:\nnone\n\n"
+            "SPEAKERS:\nJohn Doe | host | tech reviewer\n\n"
+            "ENTITIES:\nJohn Doe | person |\n\n"
+            "CONCEPTS:\ntesting | Software testing methodology\n\n"
+            "RELATIONSHIPS:\nJohn Doe + testing | Host discusses testing\n\n"
+            "SOURCES:"
+        )
+        sections = YTAPIVideoExtractor._parse_sections(text)
+        assert sections == EXPECTED_STRICT_SECTIONS
+
+    def test_markdown_heading_delimiters(self):
+        text = (
+            "## FORMAT\nmonologue\n\n"
+            "## EPISODE\nnone\n\n"
+            "## SPEAKERS\nJohn Doe | host | tech reviewer\n\n"
+            "## ENTITIES\nJohn Doe | person |\n\n"
+            "## CONCEPTS\ntesting | Software testing methodology\n\n"
+            "## RELATIONSHIPS\nJohn Doe + testing | Host discusses testing\n\n"
+            "## SOURCES"
+        )
+        sections = YTAPIVideoExtractor._parse_sections(text)
+        assert sections == EXPECTED_STRICT_SECTIONS
+
+    def test_unknown_colon_token_not_matched(self):
+        # A pipe-delimited line with an unknown colon-prefixed token must
+        # stay inside its section instead of being treated as a delimiter.
+        text = (
+            "=== ENTITIES ===\n"
+            "SOMETHING: | person | unrelated\n"
+            "Other Person | person |"
+        )
+        sections = YTAPIVideoExtractor._parse_sections(text)
+        assert 'ENTITIES' in sections
+        assert 'SOMETHING' not in sections
+        assert 'SOMETHING: | person | unrelated' in sections['ENTITIES']
+
+    def test_empty_parse_emits_warning(self, ctx, capsys):
         video = _make_video_mock()
-        cached = {
-            "video_id": "vid_ext_test",
-            "prompt_version": YTAPIVideoExtractor.PROMPT_VERSION,
-            "video_last_updated": BATCH_TIME.isoformat(),
-            "text": "FORMAT:\nmonologue [!]\n\nSPEAKERS:\nnone",
-            "extracted_at": BATCH_TIME.isoformat(),
-        }
-        write_json("youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json", cached)
-
-        assert YTAPIVideoExtractor.get_chapters(video) == []
-
-    def test_empty_timestamps_section_returns_empty(self, ctx, write_json):
-        video = _make_video_mock()
-        cached = {
-            "video_id": "vid_ext_test",
-            "prompt_version": YTAPIVideoExtractor.PROMPT_VERSION,
-            "video_last_updated": BATCH_TIME.isoformat(),
-            "text": "TIMESTAMPS:\n\nSPEAKERS:\nnone",
-            "extracted_at": BATCH_TIME.isoformat(),
-        }
-        write_json("youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json", cached)
-
-        assert YTAPIVideoExtractor.get_chapters(video) == []
-
-    def test_malformed_timestamps_absorbed_into_previous(self, ctx, write_json):
-        # Non-numeric lines between timestamps get absorbed into the previous chapter's description
-        video = _make_video_mock()
-        text = "TIMESTAMPS:\n0: Valid chapter [!]\nabc: Invalid [!]\n120: Also valid [!]\n\nSPEAKERS:"
-        cached = {
-            "video_id": "vid_ext_test",
-            "prompt_version": YTAPIVideoExtractor.PROMPT_VERSION,
-            "video_last_updated": BATCH_TIME.isoformat(),
-            "text": text,
-            "extracted_at": BATCH_TIME.isoformat(),
-        }
-        write_json("youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json", cached)
-
-        chapters = YTAPIVideoExtractor.get_chapters(video)
-        assert len(chapters) == 2
-        # "abc: Invalid [!]" is absorbed into first chapter's description
-        assert chapters[0][0] == 0
-        assert "Valid chapter" in chapters[0][1]
-        assert chapters[1] == [120, "Also valid [!]"]
+        gibberish = 'the model rambled without any structured output at all'
+        responses = [gibberish, CANNED_EVAL_RESPONSE]
+        with patch.object(YTAPIVideoExtractor, "ask_llm", side_effect=responses):
+            YTAPIVideoExtractor.run(video)
+        captured = capsys.readouterr()
+        assert 'no recognizable sections' in captured.out
+        assert 'rambled' in captured.out
