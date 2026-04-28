@@ -11,6 +11,7 @@ from __future__ import annotations
 YOUTUBE_TIMEDTEXT = 'youtube.timedtext'
 YOUTUBE_DATA_API = 'youtube.data_api_v3'
 YOUTUBE_MEDIA = 'youtube.media'
+YOUTUBE_THUMBNAIL = 'youtube.thumbnail'
 
 BUCKETS = {
     YOUTUBE_TIMEDTEXT: {
@@ -36,6 +37,18 @@ BUCKETS = {
         ],
         'reset_timezone': None,
     },
+    YOUTUBE_THUMBNAIL: {
+        # Channel/profile thumbnails fetched from googleusercontent CDN —
+        # tiny static files with no documented quota. Rate-limited only to
+        # avoid hammering when classifying a high-comment-count video.
+        'windows': [
+            (1, 5),
+            (60, 60),
+            (3600, 1000),
+            (86400, 10000),
+        ],
+        'reset_timezone': None,
+    },
 }
 
 # Documented per-call costs for YouTube Data API v3 operations we invoke.
@@ -47,6 +60,8 @@ DATA_API_COSTS = {
     'playlistItems.list': 1,
     'videos.list': 1,
     'videos.getRating': 1,
+    'commentThreads.list': 1,
+    'comments.list': 1,
     'subscriptions.list': 1,
     'search.list': 100,
 }

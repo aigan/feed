@@ -5,7 +5,7 @@ from context import Context
 
 
 class YTAPIVideoExtractor(Processor):
-    PROMPT_VERSION = 2
+    PROMPT_VERSION = 4
 
     TRACE_FORMATS = {'news', 'commentary', 'reaction', 'embed'}
     ENTITY_CATEGORIES = {
@@ -16,6 +16,12 @@ class YTAPIVideoExtractor(Processor):
         'FORMAT', 'EPISODE', 'SPEAKERS', 'ENTITIES',
         'CONCEPTS', 'RELATIONSHIPS', 'SOURCES',
     })
+
+    # TODO(comments-to-llm): consume comment_selector output. Decide:
+    # - which classes feed in (must-read always; quality subject to budget).
+    # - thread formatting (parent + selected replies) vs flat.
+    # - token budget per video.
+    # - which existing sections gain a [from comments] provenance marker.
 
     @classmethod
     def get(cls, video):
@@ -53,13 +59,15 @@ class YTAPIVideoExtractor(Processor):
             print('  [2/3] Source trace: skipped')
 
         print('  [3/3] Evaluating...')
-        evaluation = cls._step_evaluate(context, extracted, source_trace)
+        evaluation, evaluation_raw = cls._step_evaluate(context, extracted, source_trace)
 
         result = cls._assemble(video, context, extracted, source_trace, evaluation)
         cls._validate(result, context)
         dump_json(result_file, result)
         raw_file = result_file.with_name('ytapi_extracted.txt')
         raw_file.write_text(extracted.get('_raw', ''))
+        eval_raw_file = result_file.with_name('ytapi_extracted_evaluation.txt')
+        eval_raw_file.write_text(evaluation_raw)
         return result
 
     # --- Input preparation ---
@@ -198,6 +206,68 @@ class YTAPIVideoExtractor(Processor):
 
     # --- Step 1: Extract ---
 
+    _EXTRACT_SECTIONS = [
+        ('FORMAT', (
+            '# Video format:\n'
+            '<FORMAT>one or more of: interview, discussion, monologue, presentation, '
+            'documentary, essay, review, reaction, commentary, embed, letsplay, '
+            'news, tutorial, vlog, compilation, livestream, skit, other</FORMAT>\n'
+            '<EXAMPLE>\ndiscussion\npresentation\n</EXAMPLE>\n'
+            'Video format:'
+        )),
+        ('EPISODE', (
+            '# Episode:\n'
+            '<FORMAT>series title | episode number or name (or "none")</FORMAT>\n'
+            '<EXAMPLE>\nThe Daily Show | Episode 42 - Guest Special\n</EXAMPLE>\n'
+            'Episode:'
+        )),
+        ('SPEAKERS', (
+            '# All speakers:\n'
+            '<FORMAT>full name | role (host/guest/narrator/subject/referenced) '
+            '| short description</FORMAT>\n'
+            '<EXAMPLE>\nAdam Berg | guest | topic expert\n'
+            'Cecil Dalton | host | -\n</EXAMPLE>\n'
+            'All speakers:'
+        )),
+        ('ENTITIES', (
+            '# All named entities (include speakers above):\n'
+            '<FORMAT>canonical name | category (person/organization/product/'
+            'workseries/technology/location/date/event) | aliases if any</FORMAT>\n'
+            '<EXAMPLE>\nAdam Berg | person | -\n'
+            'TechCorp | organization | Tech Corp, TC\n'
+            'Quantum Engine | technology | QE\n</EXAMPLE>\n'
+            'All named entities:'
+        )),
+        ('CONCEPTS', (
+            '# Key ideas and topics:\n'
+            '<FORMAT>keyword | description of its context in this video</FORMAT>\n'
+            '<EXAMPLE>\nmachine learning | discussed as the main driver behind '
+            "the product's recommendation system\n"
+            'open source | contrasted with proprietary approaches to AI '
+            'development\n</EXAMPLE>\n'
+            'Key ideas and topics:'
+        )),
+        ('RELATIONSHIPS', (
+            '# Important connections between entities or concepts:\n'
+            '<FORMAT>entity1 + entity2 | relationship description</FORMAT>\n'
+            '<EXAMPLE>\nAdam Berg + TechCorp | founder and CEO\n'
+            'Quantum Engine + machine learning | engine uses ML for '
+            'optimization\n</EXAMPLE>\n'
+            'Important connections:'
+        )),
+        ('SOURCES', (
+            '# External items the video cites, reacts to, or is based on:\n'
+            '<FORMAT>source description | identifying clues (speaker, title, '
+            'date, platform) | URL or none</FORMAT>\n'
+            '<EXAMPLE>\nNature paper on quantum computing | Smith et al., 2024, '
+            'Nature | https://doi.org/example\n'
+            'Industry report | mentioned by host, no title given | none\n'
+            '</EXAMPLE>\n'
+            'If there are no external sources, write exactly: none\n'
+            'External sources:'
+        )),
+    ]
+
     @classmethod
     def _step_extract(cls, context):
         description_note = ''
@@ -207,69 +277,92 @@ class YTAPIVideoExtractor(Processor):
                 'Extract from title and tags only.\n'
             )
 
-        prompt = """VIDEO METADATA EXTRACTION
+        tags = ', '.join(context['tags']) if context['tags'] else 'None'
+        categories = ', '.join(context['categories']) if context['categories'] else 'None'
 
-Extract structured information from the video metadata below.
-Focus on facts only — no confidence ratings, no quality judgments, no timestamps.
-{description_note}
-For each section, use the exact format shown.
-Use ` | ` (space-pipe-space) to separate fields. One entry per line.
-Output the sections as plain text. Do not wrap the output in markdown code fences. Do not add any preamble or trailing commentary.
-
-=== FORMAT ===
-Select one or more: interview, discussion, monologue, presentation, documentary, essay, review, reaction, commentary, embed, letsplay, news, tutorial, vlog, compilation, livestream, skit, other
-
-=== EPISODE ===
-If this is part of a series, write: series title | episode number or name
-Otherwise write: none
-
-=== SPEAKERS ===
-full name | role (host/guest/narrator/subject/referenced) | short description
-Each speaker must also appear under ENTITIES.
-
-=== ENTITIES ===
-canonical name | category (person/organization/product/workseries/technology/location/date/event) | aliases if any
-Include all named entities: real, fictional, or speculative.
-
-=== CONCEPTS ===
-keyword | description of its context in this video
-Key ideas, themes, or topics. No boilerplate, disclaimers, or calls to action.
-
-=== RELATIONSHIPS ===
-entity1 + entity2 | relationship description
-Important connections between entities or concepts listed above.
-
-=== SOURCES ===
-source description | identifying clues (speaker, title, date, platform) | URL or none
-Each distinct external item the video cites, reacts to, summarizes, or is based on.
-
-Video Title: {title}
-Channel: {channel_title}
-Upload date: {date}
-Length: {length}
-Description:
-{description}
-Tags: {tags}
-Categories: {categories}"""
-
-        text = cls.ask_llm(
-            prompt,
-            {
-                'title': context['title'],
-                'channel_title': context['channel_title'],
-                'description': context['description'],
-                'date': context['date'],
-                'length': context['length'],
-                'tags': ', '.join(context['tags']) if context['tags'] else 'None',
-                'categories': ', '.join(context['categories']) if context['categories'] else 'None',
-                'description_note': description_note,
-            },
-            profile='extract',
+        system_prompt = (
+            'VIDEO METADATA EXTRACTION\n\n'
+            'Extract structured information from the video metadata below.\n'
+            'Focus on facts only — no confidence ratings, no quality judgments, '
+            'no timestamps.\n'
+            f'{description_note}'
+            'Use ` | ` (space-pipe-space) to separate fields. One entry per line.\n'
+            'Do not wrap output in markdown code fences.\n\n'
+            f'Video Title: {context["title"]}\n'
+            f'Channel: {context["channel_title"]}\n'
+            f'Upload date: {context["date"]}\n'
+            f'Length: {context["length"]}\n'
+            f'Description:\n{context["description"]}\n'
+            f'Tags: {tags}\n'
+            f'Categories: {categories}'
         )
 
-        extracted = cls._parse_extraction(text)
-        extracted['_raw'] = text
+        conv = cls.conversation(profile='extract')
+        conv.system(system_prompt)
+
+        raw_parts = []
+        responses = {}
+        for name, prompt in cls._EXTRACT_SECTIONS:
+            text = conv.ask(prompt)
+            responses[name] = text
+            raw_parts.append(f'=== {name} ===\n{text}')
+
+        extracted = cls._parse_section_responses(responses)
+        extracted['_raw'] = '\n\n'.join(raw_parts) + '\n'
         return extracted
+
+    @classmethod
+    def _parse_section_responses(cls, responses):
+        formats = []
+        for line in responses.get('FORMAT', '').splitlines():
+            line = line.strip().lower()
+            if line:
+                formats.append(line)
+
+        episode = None
+        ep_text = responses.get('EPISODE', '').strip()
+        if ep_text.lower() != 'none' and ep_text:
+            parts = [p.strip() for p in ep_text.split(' | ')]
+            episode = {
+                'series': parts[0],
+                'episode': parts[1] if len(parts) > 1 else None,
+            }
+
+        speakers = cls._parse_pipe_section_from_text(
+            responses.get('SPEAKERS', ''), ('name', 'role', 'description'))
+        entities = cls._parse_pipe_section_from_text(
+            responses.get('ENTITIES', ''), ('name', 'category', 'aliases'))
+        for e in entities:
+            e['category'] = e['category'].strip(' |')
+        concepts = cls._parse_pipe_section_from_text(
+            responses.get('CONCEPTS', ''), ('keyword', 'description'))
+        relationships = cls._parse_pipe_section_from_text(
+            responses.get('RELATIONSHIPS', ''), ('entities', 'description'))
+        sources = cls._parse_pipe_section_from_text(
+            responses.get('SOURCES', ''), ('description', 'clues', 'url'))
+        for s in sources:
+            if not s['url'] or s['url'].lower() == 'none':
+                s['url'] = None
+        sources = [s for s in sources if s['description'].lower() not in ('none', 'n/a', '-')]
+
+        return {
+            'formats': formats,
+            'episode': episode,
+            'speakers': speakers,
+            'entities': entities,
+            'concepts': concepts,
+            'relationships': relationships,
+            'sources': sources,
+        }
+
+    @classmethod
+    def _parse_pipe_section_from_text(cls, text, fields):
+        result = []
+        for parts in cls._parse_pipe_lines(text):
+            entry = {name: parts[i] if len(parts) > i else ''
+                     for i, name in enumerate(fields)}
+            result.append(entry)
+        return result
 
     @classmethod
     def _parse_extraction(cls, text):
@@ -303,6 +396,7 @@ Categories: {categories}"""
         for s in sources:
             if not s['url'] or s['url'].lower() == 'none':
                 s['url'] = None
+        sources = [s for s in sources if s['description'].lower() not in ('none', 'n/a', '-')]
 
         return {
             'formats': formats,
@@ -451,7 +545,7 @@ VERDICT: One of:
             profile='extract',
         )
 
-        return cls._parse_evaluation(text)
+        return cls._parse_evaluation(text), text
 
     @classmethod
     def _parse_evaluation(cls, text):

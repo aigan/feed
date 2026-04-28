@@ -12,3 +12,9 @@ response = youtube_analytics.reports().query(
             dimensions=dimensions,
             filters=f"video=={video_id}"
         ).execute()
+
+
+## LLM model / config cleanup
+
+- Empty extraction parser failure on gpt-5-mini and gpt-5.4-mini. On 1/8 and 2/8 videos respectively, the extractor emitted something `_parse_sections` couldn't read — results had empty `formats`/`speakers`/`entities`/`concepts` lists but a populated `evaluation.gaps` list. Nano variants produced structured sections on all 8 videos. Likely the bigger models occasionally wrap output in markdown fences or shift the `=== SECTION ===` delimiters. Fix either by tightening the prompt (add "do not wrap in markdown fences") or by making `_parse_sections` tolerant of code fences and loose delimiters.
+

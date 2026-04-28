@@ -71,6 +71,40 @@ class Channel:
         data = cls.update(channel_id)
         return cls(**convert_fields(cls,data))
 
+    @classmethod
+    def find_by_handle(cls, handle):
+        """Local lookup of a channel by @handle. Scans cached channel.json
+        files. Returns the channel_id or None. Case-insensitive."""
+        base = config.DATA_DIR / 'youtube/channels/active'
+        if not base.exists():
+            return None
+        target = handle.lstrip('@').lower()
+        for path in base.glob('*/channel.json'):
+            try:
+                d = json.loads(path.read_text())
+            except Exception:
+                continue
+            if (d.get('custom_url') or '').lstrip('@').lower() == target:
+                return d['channel_id']
+        return None
+
+    @classmethod
+    def get_by_handle(cls, handle) -> Channel:
+        """Fetch a channel by @handle. Local cache first, API fallback."""
+        cid = cls.find_by_handle(handle)
+        if cid:
+            return cls.get(cid)
+        from youtube import get_youtube_client
+        from youtube.client import execute_api
+        youtube = get_youtube_client()
+        clean = '@' + handle.lstrip('@')
+        request = youtube.channels().list(forHandle=clean, part='id')
+        response = execute_api(request, 'channels.list')
+        items = response.get('items') or []
+        if not items:
+            raise ValueError(f'No channel found for handle {clean}')
+        return cls.get(items[0]['id'])
+
     def sync(self):
         batch_time = Context.get().batch_time
         age = batch_time - self.last_updated
@@ -360,6 +394,57 @@ class Channel:
 
     def get_archive_uploads_file(self, year) -> Path:
         return self.get_archive_dir(self.channel_id) / f"uploads/{str(year)}.json"
+
+    def fetch_default_thumbnail_features(self):
+        """Idempotent. Downloads thumbnails/default.<ext> if missing,
+        analyzes color count and stores in thumbnails/default.json. Returns
+        the metadata dict, or None if the channel has no thumbnail URL.
+
+        A YouTube auto-generated default avatar is a single letter on a
+        solid background and quantizes to ~2 distinct colors at our
+        threshold; uploaded photos quantize to 4. See
+        _score_author_channel for how this drives author scoring."""
+        from PIL import Image
+
+        thumb = self.thumbnails.get('default') if isinstance(self.thumbnails, dict) else None
+        if not thumb or not thumb.get('url'):
+            return None
+
+        thumbs_dir = self.get_active_dir(self.channel_id) / 'thumbnails'
+        json_path = thumbs_dir / 'default.json'
+        if json_path.exists():
+            return json.loads(json_path.read_text())
+
+        img_paths = [p for p in thumbs_dir.glob('default.*') if p.suffix != '.json']
+        if img_paths:
+            img_path = img_paths[0]
+        else:
+            import urllib.request
+
+            from rate_limiter import RateLimiter
+            from rate_limits import YOUTUBE_THUMBNAIL
+
+            req = urllib.request.Request(thumb['url'], headers={'User-Agent': 'Mozilla/5.0'})
+            with RateLimiter.get().acquire(YOUTUBE_THUMBNAIL):
+                with urllib.request.urlopen(req) as resp:
+                    content_type = (resp.headers.get('Content-Type') or 'image/jpeg').split(';')[0].strip()
+                    data = resp.read()
+            ext = {'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp'}.get(content_type, '.jpg')
+            img_path = thumbs_dir / f'default{ext}'
+            img_path.parent.mkdir(parents=True, exist_ok=True)
+            img_path.write_bytes(data)
+
+        img = Image.open(img_path).convert('RGB')
+        palette = img.quantize(colors=4, dither=Image.Dither.NONE)
+        counts = palette.getcolors() or []
+        total = sum(c for c, _ in counts)
+        distinct = sum(1 for c, _ in counts if total and c / total > 0.05)
+        metadata = {
+            'distinct_colors': distinct,
+            'source_url': thumb['url'],
+        }
+        dump_json(json_path, metadata)
+        return metadata
 
     @classmethod
     def migrate(cls, data):

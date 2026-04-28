@@ -20,8 +20,7 @@ from analysis.description_filter import DescriptionFilter
 def is_processed(video_id):
     processed_dir = Video.get_processed_dir(video_id)
     return (
-        (processed_dir / 'description.txt').exists()
-        and (processed_dir / 'transcript.txt').exists()
+        (processed_dir / 'ytapi_extracted.json').exists()
     )
 
 

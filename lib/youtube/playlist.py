@@ -24,10 +24,13 @@ class Playlist:
     privacy_status: str
     description: str
     thumbnails: dict
-    items_etag: str
-    items: list
     last_updated: datetime
-    items_last_updated: datetime
+    # items and items_etag are populated only when items have been fetched
+    # (an extra ~ceil(item_count/50) quota per playlist). list_for_channel
+    # leaves them None so we can refresh metadata cheaply.
+    items_etag: str = None
+    items: list = None
+    items_last_updated: datetime = None
 
     @classmethod
     def for_channel(cls, channel_id) -> Generator[Playlist, None, None]:
@@ -60,6 +63,38 @@ class Playlist:
         removed_ids = existing_ids - set(playlist_ids)
         for playlist_id in sorted(removed_ids):
             cls.archive_removed(channel_id, playlist_id)
+
+    @classmethod
+    def list_for_channel(cls, channel_id):
+        """Lightweight: fetch only the playlist metadata for a channel
+        (titles, descriptions, item counts) — no playlist items. Costs
+        ~1 quota total vs ~1 + N for for_channel. Items can be filled in
+        later by calling retrieve_playlist_items on demand."""
+        batch_time = Context.get().batch_time
+        data_dir = cls.get_active_dir(channel_id)
+        data_dir.mkdir(parents=True, exist_ok=True)
+        for item in cls.retrieve(channel_id):
+            playlist_id = item.id
+            data_file = data_dir / f"{playlist_id}.json"
+            existing = json.loads(data_file.read_text()) if data_file.exists() else {}
+            new_data = {
+                'first_seen': existing.get('first_seen', batch_time.isoformat()),
+                'playlist_id': playlist_id,
+                'channel_id': item.snippet.channelId,
+                'title': item.snippet.title,
+                'etag': item.etag,
+                'published_at': datetime.fromisoformat(item.snippet.publishedAt).isoformat(),
+                'item_count': item.contentDetails.itemCount,
+                'privacy_status': item.status.privacyStatus,
+                'description': item.snippet.description,
+                'thumbnails': from_obj(item.snippet.thumbnails),
+                'last_updated': batch_time.isoformat(),
+            }
+            # Preserve previously-fetched items, if any.
+            for k in ('items', 'items_etag', 'items_last_updated'):
+                if k in existing:
+                    new_data[k] = existing[k]
+            dump_json(data_file, new_data)
 
     @classmethod
     def update_from_data(cls, item):

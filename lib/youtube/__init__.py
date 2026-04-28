@@ -2,6 +2,7 @@ from googleapiclient.errors import HttpError
 
 from .channel import Channel
 from .client import SCOPES, get_youtube_client
+from .comment import Comment, CommentsDisabledError
 from .media import Media
 from .playlist import Playlist
 from .ratings import Rating

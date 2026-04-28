@@ -3,7 +3,10 @@ import os
 from rate_limiter import RateLimiter
 from rate_limits import DATA_API_COSTS, YOUTUBE_DATA_API
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
+]
 API_RETRIES = 0
 ROOT = os.environ["PROJECT_ROOT"]
 TOKEN_FILE = ROOT + "/var/token.json"

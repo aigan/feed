@@ -32,6 +32,16 @@ John Doe + testing | Host discusses testing
 
 === SOURCES ==="""
 
+CANNED_SECTION_RESPONSES = [
+    'monologue',
+    'none',
+    'John Doe | host | tech reviewer',
+    'John Doe | person |',
+    'testing | Software testing methodology',
+    'John Doe + testing | Host discusses testing',
+    '',
+]
+
 CANNED_EVAL_RESPONSE = """\
 COVERAGE: minimal
 
@@ -45,6 +55,11 @@ VALUE: insufficient metadata
 
 VERDICT: need_transcript"""
 
+
+def _mock_conversation(section_responses):
+    conv = MagicMock()
+    conv.ask = MagicMock(side_effect=list(section_responses))
+    return conv
 
 
 def _make_video_mock(**overrides):
@@ -69,34 +84,31 @@ def _make_video_mock(**overrides):
 class TestYTAPIVideoExtractorRun:
     def test_run_stores_result_and_returns_dict(self, ctx):
         video = _make_video_mock()
-        responses = [CANNED_EXTRACT_RESPONSE, CANNED_EVAL_RESPONSE]
-        with patch.object(YTAPIVideoExtractor, "ask_llm", side_effect=responses):
+        conv = _mock_conversation(CANNED_SECTION_RESPONSES)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv), \
+             patch.object(YTAPIVideoExtractor, 'ask_llm', return_value=CANNED_EVAL_RESPONSE):
             result = YTAPIVideoExtractor.run(video)
 
-        assert result["video_id"] == "vid_ext_test"
-        assert result["prompt_version"] == YTAPIVideoExtractor.PROMPT_VERSION
-        assert "FORMAT:" in result["text"]
-        assert result["extracted_at"] == BATCH_TIME.isoformat()
+        assert result['video_id'] == 'vid_ext_test'
+        assert result['prompt_version'] == YTAPIVideoExtractor.PROMPT_VERSION
+        assert 'FORMAT:' in result['text']
+        assert result['extracted_at'] == BATCH_TIME.isoformat()
 
-        # File should be written
-        result_file = ctx / "youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json"
+        result_file = ctx / 'youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json'
         assert result_file.exists()
 
-    def test_run_passes_video_metadata_to_llm(self, ctx):
-        video = _make_video_mock(title="Special Title", tags=["python", "review"])
-        extract_args = {}
-
-        def capture_llm(prompt, params, **kwargs):
-            if not extract_args:
-                extract_args.update(params)
-            return CANNED_EXTRACT_RESPONSE
-
-        with patch.object(YTAPIVideoExtractor, "ask_llm", side_effect=capture_llm):
+    def test_run_passes_video_metadata_to_conversation(self, ctx):
+        video = _make_video_mock(title='Special Title', tags=['python', 'review'])
+        conv = _mock_conversation(CANNED_SECTION_RESPONSES)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv), \
+             patch.object(YTAPIVideoExtractor, 'ask_llm', return_value=CANNED_EVAL_RESPONSE):
             YTAPIVideoExtractor.run(video)
 
-        assert extract_args["title"] == "Special Title"
-        assert extract_args["tags"] == "python, review"
-        assert extract_args["length"] == "10:00"
+        conv.system.assert_called_once()
+        system_text = conv.system.call_args[0][0]
+        assert 'Special Title' in system_text
+        assert 'python, review' in system_text
+        assert '10:00' in system_text
 
 
 # ---------------------------------------------------------------------------
@@ -121,20 +133,21 @@ class TestYTAPIVideoExtractorGet:
     def test_get_reruns_when_prompt_version_differs(self, ctx, write_json):
         video = _make_video_mock()
         cached = {
-            "video_id": "vid_ext_test",
-            "prompt_version": 0,  # old version
-            "video_last_updated": BATCH_TIME.isoformat(),
-            "text": "stale result",
-            "extracted_at": BATCH_TIME.isoformat(),
+            'video_id': 'vid_ext_test',
+            'prompt_version': 0,
+            'video_last_updated': BATCH_TIME.isoformat(),
+            'text': 'stale result',
+            'extracted_at': BATCH_TIME.isoformat(),
         }
-        write_json("youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json", cached)
+        write_json('youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json', cached)
 
-        responses = [CANNED_EXTRACT_RESPONSE, CANNED_EVAL_RESPONSE]
-        with patch.object(YTAPIVideoExtractor, "ask_llm", side_effect=responses):
+        conv = _mock_conversation(CANNED_SECTION_RESPONSES)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv), \
+             patch.object(YTAPIVideoExtractor, 'ask_llm', return_value=CANNED_EVAL_RESPONSE):
             result = YTAPIVideoExtractor.get(video)
 
-        assert "FORMAT:" in result["text"]
-        assert result["prompt_version"] == YTAPIVideoExtractor.PROMPT_VERSION
+        assert 'FORMAT:' in result['text']
+        assert result['prompt_version'] == YTAPIVideoExtractor.PROMPT_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -231,19 +244,20 @@ class TestExtractorGetEdgeCases:
         video = _make_video_mock()
         old_time = datetime(2023, 1, 1, tzinfo=timezone.utc)
         cached = {
-            "video_id": "vid_ext_test",
-            "prompt_version": YTAPIVideoExtractor.PROMPT_VERSION,
-            "video_last_updated": old_time.isoformat(),
-            "text": "stale result",
-            "extracted_at": old_time.isoformat(),
+            'video_id': 'vid_ext_test',
+            'prompt_version': YTAPIVideoExtractor.PROMPT_VERSION,
+            'video_last_updated': old_time.isoformat(),
+            'text': 'stale result',
+            'extracted_at': old_time.isoformat(),
         }
-        write_json("youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json", cached)
+        write_json('youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted.json', cached)
 
-        responses = [CANNED_EXTRACT_RESPONSE, CANNED_EVAL_RESPONSE]
-        with patch.object(YTAPIVideoExtractor, "ask_llm", side_effect=responses):
+        conv = _mock_conversation(CANNED_SECTION_RESPONSES)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv), \
+             patch.object(YTAPIVideoExtractor, 'ask_llm', return_value=CANNED_EVAL_RESPONSE):
             result = YTAPIVideoExtractor.get(video)
 
-        assert "FORMAT:" in result["text"]
+        assert 'FORMAT:' in result['text']
 
 
 # ---------------------------------------------------------------------------
@@ -337,11 +351,202 @@ class TestParseSections:
         assert 'SOMETHING: | person | unrelated' in sections['ENTITIES']
 
     def test_empty_parse_emits_warning(self, ctx, capsys):
-        video = _make_video_mock()
         gibberish = 'the model rambled without any structured output at all'
-        responses = [gibberish, CANNED_EVAL_RESPONSE]
-        with patch.object(YTAPIVideoExtractor, "ask_llm", side_effect=responses):
-            YTAPIVideoExtractor.run(video)
+        YTAPIVideoExtractor._parse_extraction(gibberish)
         captured = capsys.readouterr()
         assert 'no recognizable sections' in captured.out
         assert 'rambled' in captured.out
+
+
+# ---------------------------------------------------------------------------
+# Conversation
+# ---------------------------------------------------------------------------
+
+class TestConversation:
+    def test_accumulates_messages(self):
+        from analysis.processor import Conversation
+        with patch('langchain_openai.ChatOpenAI') as MockLLM:
+            mock_response = MagicMock()
+            mock_response.content = 'answer1'
+            MockLLM.return_value.invoke.return_value = mock_response
+
+            conv = Conversation(profile='extract')
+            result = conv.ask('question1')
+
+        assert result == 'answer1'
+        assert len(conv.messages) == 2  # human + ai
+
+    def test_system_message_prepended(self):
+        from analysis.processor import Conversation
+        with patch('langchain_openai.ChatOpenAI') as MockLLM:
+            mock_response = MagicMock()
+            mock_response.content = 'answer'
+            MockLLM.return_value.invoke.return_value = mock_response
+
+            conv = Conversation(profile='extract')
+            conv.system('you are a helper')
+            conv.ask('question')
+
+        assert len(conv.messages) == 3  # system + human + ai
+        assert conv.messages[0].content == 'you are a helper'
+
+
+# ---------------------------------------------------------------------------
+# Multi-turn _step_extract
+# ---------------------------------------------------------------------------
+
+class TestStepExtractMultiTurn:
+    def test_calls_conversation_per_section(self, ctx):
+        video = _make_video_mock()
+        context = YTAPIVideoExtractor._build_context(video)
+        conv = _mock_conversation(CANNED_SECTION_RESPONSES)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv):
+            YTAPIVideoExtractor._step_extract(context)
+
+        assert conv.system.call_count == 1
+        assert conv.ask.call_count == 7
+
+    def test_parses_all_sections(self, ctx):
+        video = _make_video_mock()
+        context = YTAPIVideoExtractor._build_context(video)
+        conv = _mock_conversation(CANNED_SECTION_RESPONSES)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv):
+            result = YTAPIVideoExtractor._step_extract(context)
+
+        assert result['formats'] == ['monologue']
+        assert result['episode'] is None
+        assert result['speakers'] == [{'name': 'John Doe', 'role': 'host', 'description': 'tech reviewer'}]
+        assert result['entities'] == [{'name': 'John Doe', 'category': 'person', 'aliases': ''}]
+        assert result['concepts'] == [{'keyword': 'testing', 'description': 'Software testing methodology'}]
+        assert result['relationships'] == [{'entities': 'John Doe + testing', 'description': 'Host discusses testing'}]
+        assert result['sources'] == []
+
+    def test_raw_text_has_section_headers(self, ctx):
+        video = _make_video_mock()
+        context = YTAPIVideoExtractor._build_context(video)
+        conv = _mock_conversation(CANNED_SECTION_RESPONSES)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv):
+            result = YTAPIVideoExtractor._step_extract(context)
+
+        assert '=== FORMAT ===' in result['_raw']
+        assert '=== ENTITIES ===' in result['_raw']
+        assert '=== SOURCES ===' in result['_raw']
+
+    def test_category_trailing_pipe_stripped(self, ctx):
+        responses = list(CANNED_SECTION_RESPONSES)
+        responses[3] = 'Wayward Radio | workseries | | \nTed | person | |'
+        video = _make_video_mock()
+        context = YTAPIVideoExtractor._build_context(video)
+        conv = _mock_conversation(responses)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv):
+            result = YTAPIVideoExtractor._step_extract(context)
+
+        for entity in result['entities']:
+            assert not entity['category'].endswith('|')
+
+    def test_system_message_contains_metadata(self, ctx):
+        video = _make_video_mock(title='Special Title', tags=['python'])
+        context = YTAPIVideoExtractor._build_context(video)
+        conv = _mock_conversation(CANNED_SECTION_RESPONSES)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv):
+            YTAPIVideoExtractor._step_extract(context)
+
+        system_text = conv.system.call_args[0][0]
+        assert 'Special Title' in system_text
+        assert 'python' in system_text
+
+
+# ---------------------------------------------------------------------------
+# _should_trace
+# ---------------------------------------------------------------------------
+
+class TestShouldTrace:
+    def test_returns_false_when_no_sources(self):
+        extracted = {'formats': ['discussion'], 'sources': []}
+        assert YTAPIVideoExtractor._should_trace(extracted) is False
+
+    def test_returns_true_for_trace_format(self):
+        extracted = {'formats': ['news'], 'sources': []}
+        assert YTAPIVideoExtractor._should_trace(extracted) is True
+
+    def test_returns_true_for_sources_without_urls(self):
+        extracted = {
+            'formats': ['discussion'],
+            'sources': [{'description': 'Some article', 'clues': 'mentioned', 'url': None}],
+        }
+        assert YTAPIVideoExtractor._should_trace(extracted) is True
+
+    def test_returns_false_for_phantom_none_sources_after_parsing(self):
+        responses = {
+            'FORMAT': 'discussion',
+            'EPISODE': 'none',
+            'SPEAKERS': '',
+            'ENTITIES': '',
+            'CONCEPTS': '',
+            'RELATIONSHIPS': '',
+            'SOURCES': 'none | no external sources cited | none',
+        }
+        extracted = YTAPIVideoExtractor._parse_section_responses(responses)
+        assert YTAPIVideoExtractor._should_trace(extracted) is False
+
+
+# ---------------------------------------------------------------------------
+# Source filtering in _parse_section_responses
+# ---------------------------------------------------------------------------
+
+class TestSourceFiltering:
+    def test_filters_none_description_sources(self):
+        responses = {
+            'FORMAT': 'discussion',
+            'EPISODE': 'none',
+            'SPEAKERS': '',
+            'ENTITIES': '',
+            'CONCEPTS': '',
+            'RELATIONSHIPS': '',
+            'SOURCES': 'none | no external sources cited | none',
+        }
+        result = YTAPIVideoExtractor._parse_section_responses(responses)
+        assert result['sources'] == []
+
+    def test_keeps_real_sources(self):
+        responses = {
+            'FORMAT': 'news',
+            'EPISODE': 'none',
+            'SPEAKERS': '',
+            'ENTITIES': '',
+            'CONCEPTS': '',
+            'RELATIONSHIPS': '',
+            'SOURCES': 'Nature paper | Smith 2024 | https://doi.org/example',
+        }
+        result = YTAPIVideoExtractor._parse_section_responses(responses)
+        assert len(result['sources']) == 1
+        assert result['sources'][0]['description'] == 'Nature paper'
+
+
+# ---------------------------------------------------------------------------
+# run() integration: phantom sources + evaluation raw file
+# ---------------------------------------------------------------------------
+
+class TestRunSourceTraceAndEvalFile:
+    def test_run_skips_trace_for_phantom_sources(self, ctx):
+        responses = list(CANNED_SECTION_RESPONSES)
+        responses[6] = 'none | no external sources cited | none'
+        video = _make_video_mock()
+        conv = _mock_conversation(responses)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv), \
+             patch.object(YTAPIVideoExtractor, 'ask_llm', return_value=CANNED_EVAL_RESPONSE) as mock_eval:
+            result = YTAPIVideoExtractor.run(video)
+
+        assert result['source_trace'] is None
+        mock_eval.assert_called_once()
+
+    def test_run_writes_evaluation_raw_file(self, ctx):
+        video = _make_video_mock()
+        conv = _mock_conversation(CANNED_SECTION_RESPONSES)
+        with patch.object(YTAPIVideoExtractor, 'conversation', return_value=conv), \
+             patch.object(YTAPIVideoExtractor, 'ask_llm', return_value=CANNED_EVAL_RESPONSE):
+            YTAPIVideoExtractor.run(video)
+
+        eval_file = ctx / 'youtube/videos/active/vi/vid_ext_test/processed/ytapi_extracted_evaluation.txt'
+        assert eval_file.exists()
+        assert eval_file.read_text() == CANNED_EVAL_RESPONSE

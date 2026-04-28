@@ -10,6 +10,8 @@ dependencies = [
     "isodate",
     "langchain-core",
     "langchain-openai",
+    "pillow",
+    "spacy",
     "youtube-transcript-api",
 ]
 

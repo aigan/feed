@@ -13,6 +13,76 @@ class VideoUnavailableError(Exception):
     pass
 
 
+def _api_to_comment_dict(item, video_id, parent_id, total_reply_count):
+    s = item['snippet']
+    author_channel = s.get('authorChannelId')
+    author_channel_id = author_channel.get('value') if isinstance(author_channel, dict) else None
+    return {
+        'comment_id': item['id'],
+        'video_id': video_id,
+        'parent_id': parent_id,
+        'author_display_name': s.get('authorDisplayName', ''),
+        'author_channel_id': author_channel_id,
+        'text_display': s.get('textDisplay', ''),
+        'text_original': s.get('textOriginal', ''),
+        'like_count': int(s.get('likeCount', 0)),
+        'published_at': s.get('publishedAt'),
+        'updated_at': s.get('updatedAt'),
+        'total_reply_count': total_reply_count,
+    }
+
+
+def _thread_to_comment_dicts(thread, video_id):
+    snippet = thread['snippet']
+    top = snippet['topLevelComment']
+    yield _api_to_comment_dict(top, video_id, parent_id=None,
+        total_reply_count=int(snippet.get('totalReplyCount', 0)))
+    for reply in thread.get('replies', {}).get('comments', []):
+        yield _api_to_comment_dict(reply, video_id,
+            parent_id=reply['snippet']['parentId'], total_reply_count=0)
+
+
+def _comment_header_line(c, indent, replies_present):
+    parts = [
+        f"[{c['comment_id']}]",
+        c.get('author_display_name', ''),
+        f"| {c.get('published_at', '')}",
+        f"| likes: {c.get('like_count', 0)}",
+    ]
+    total = c.get('total_reply_count', 0) or 0
+    if replies_present is not None and total > 0:
+        parts.append(f"| replies: {replies_present}/{total}")
+    return indent + ' '.join(parts)
+
+
+def _render_comments_txt(comments_dict):
+    top_level = sorted(
+        (c for c in comments_dict.values() if c.get('parent_id') is None),
+        key=lambda c: c.get('published_at') or '',
+    )
+    children = {}
+    for c in comments_dict.values():
+        pid = c.get('parent_id')
+        if pid is None:
+            continue
+        children.setdefault(pid, []).append(c)
+    for kids in children.values():
+        kids.sort(key=lambda c: c.get('published_at') or '')
+
+    lines = []
+    for c in top_level:
+        replies = children.get(c['comment_id'], [])
+        lines.append(_comment_header_line(c, '', len(replies)))
+        lines.append(c.get('text_display', ''))
+        lines.append('')
+        for r in replies:
+            lines.append(_comment_header_line(r, '  ', None))
+            body = r.get('text_display', '')
+            lines.extend('  ' + ln for ln in body.split('\n'))
+            lines.append('')
+    return '\n'.join(lines).rstrip() + '\n'
+
+
 @dataclass
 class Video:
     """Represents a YouTube video"""
@@ -219,3 +289,247 @@ class Video:
             (int(f.stem[1:]) for f in version_files),
             default=0
         )
+
+    @classmethod
+    def get_active_comments_file(cls, video_id):
+        return cls.get_active_dir(video_id) / 'comments.json'
+
+    @classmethod
+    def get_archive_comments_file(cls, video_id, version):
+        return cls.get_archive_dir(video_id) / f'comments-v{version}.json'
+
+    @classmethod
+    def latest_comments_version(cls, video_id):
+        archive_dir = cls.get_archive_dir(video_id)
+        files = archive_dir.glob('comments-v*.json')
+        return max(
+            (int(f.stem.replace('comments-v', '')) for f in files),
+            default=0,
+        )
+
+    def local_comments(self):
+        from youtube.comment import Comment
+        file = self.__class__.get_active_comments_file(self.video_id)
+        if not file.exists():
+            return []
+        data = json.loads(file.read_text())
+        return [
+            Comment(**convert_fields(Comment, c))
+            for c in data.get('comments', {}).values()
+        ]
+
+    def retrieve_comments(self, page_token=None):
+        from googleapiclient.errors import HttpError
+
+        from youtube import get_youtube_client
+        from youtube.client import execute_api
+        from youtube.comment import CommentsDisabledError
+
+        youtube = get_youtube_client()
+        kwargs = dict(
+            videoId=self.video_id,
+            part='snippet,replies',
+            maxResults=100,
+            textFormat='plainText',
+        )
+        if page_token:
+            kwargs['pageToken'] = page_token
+        request = youtube.commentThreads().list(**kwargs)
+        try:
+            while request:
+                response = execute_api(request, 'commentThreads.list')
+                yield response.get('items', []), response.get('nextPageToken')
+                request = youtube.commentThreads().list_next(request, response)
+        except HttpError as e:
+            details = getattr(e, 'error_details', None) or []
+            reasons = [d.get('reason', '') for d in details if isinstance(d, dict)]
+            if e.resp.status == 403 and ('commentsDisabled' in reasons or 'commentsDisabled' in str(e)):
+                raise CommentsDisabledError(self.video_id) from e
+            raise
+
+    def remote_comments(self, comment_limit=None, force=False):
+        from youtube.comment import Comment
+
+        resume_token = None
+        pages_fetched_before = 0
+        file = self.__class__.get_active_comments_file(self.video_id)
+        if not force and file.exists():
+            existing = json.loads(file.read_text())
+            if existing.get('comments_disabled'):
+                return
+            if existing.get('fetch_complete', True):
+                return
+            resume_token = existing.get('next_page_token')
+            pages_fetched_before = existing.get('pages_fetched', 0)
+
+        buffer = []
+        pages_this_run = 0
+        next_token = resume_token
+        completed = False
+        try:
+            for items, after_page_token in self.retrieve_comments(page_token=resume_token):
+                for thread in items:
+                    for comment_dict in _thread_to_comment_dicts(thread, self.video_id):
+                        buffer.append(comment_dict)
+                        yield Comment(**convert_fields(Comment, dict(comment_dict,
+                            first_seen=Context.get().batch_time.isoformat(),
+                            last_seen=Context.get().batch_time.isoformat())))
+                pages_this_run += 1
+                next_token = after_page_token
+                if comment_limit is not None and len(buffer) >= comment_limit:
+                    break
+            completed = (next_token is None)
+        finally:
+            if pages_this_run > 0:
+                fetch_state = {
+                    'fetch_complete': completed,
+                    'next_page_token': None if completed else next_token,
+                    'pages_fetched': pages_fetched_before + pages_this_run,
+                }
+                self.update_comments_from_data(buffer, fetch_state)
+
+    def update_comments_from_data(self, buffer, fetch_state):
+        batch_time = Context.get().batch_time
+        file = self.__class__.get_active_comments_file(self.video_id)
+
+        existing = json.loads(file.read_text()) if file.exists() else {}
+        existing_comments = existing.get('comments', {})
+        merged = dict(existing_comments)
+        for item in buffer:
+            cid = item['comment_id']
+            prior = existing_comments.get(cid) or {}
+            merged[cid] = {
+                **item,
+                'first_seen': prior.get('first_seen', batch_time.isoformat()),
+                'last_seen': batch_time.isoformat(),
+                'replies_complete': prior.get('replies_complete', False),
+            }
+
+        new = {
+            'comments_disabled': existing.get('comments_disabled', False),
+            'fetched_at': batch_time.isoformat(),
+            'fetch_complete': fetch_state['fetch_complete'],
+            'next_page_token': fetch_state['next_page_token'],
+            'pages_fetched': fetch_state['pages_fetched'],
+            'comments': merged,
+        }
+
+        if existing_comments:
+            self.archive_comments(existing, new)
+
+        dump_json(file, new)
+        txt_file = file.parent / 'comments.txt'
+        txt_file.write_text(_render_comments_txt(merged))
+
+    def archive_comments(self, old, new):
+        from deepdiff import DeepDiff
+        exclude_regex_paths = [
+            r"root\['fetched_at'\]",
+            r"root\['fetch_complete'\]",
+            r"root\['next_page_token'\]",
+            r"root\['pages_fetched'\]",
+            r"root\['comments'\]\['[^']+'\]\['last_seen'\]",
+            r"root\['comments'\]\['[^']+'\]\['like_count'\]",
+            r"root\['comments'\]\['[^']+'\]\['total_reply_count'\]",
+            r"root\['comments'\]\['[^']+'\]\['replies_complete'\]",
+        ]
+        diff = DeepDiff(old, new, ignore_order=True, exclude_regex_paths=exclude_regex_paths)
+        if 'values_changed' not in diff:
+            return
+        version = self.__class__.latest_comments_version(self.video_id) + 1
+        archive_file = self.__class__.get_archive_comments_file(self.video_id, version)
+        dump_json(archive_file, old)
+
+    def mirror_comments(self, comment_limit=None, force=False):
+        from youtube.comment import CommentsDisabledError
+        try:
+            for _ in self.remote_comments(comment_limit=comment_limit, force=force):
+                pass
+        except CommentsDisabledError:
+            self._mark_comments_disabled()
+
+    def retrieve_thread_replies(self, comment_id):
+        from youtube import get_youtube_client
+        from youtube.client import execute_api
+
+        youtube = get_youtube_client()
+        request = youtube.comments().list(
+            parentId=comment_id,
+            part='snippet',
+            maxResults=100,
+            textFormat='plainText',
+        )
+        while request:
+            response = execute_api(request, 'comments.list')
+            for item in response.get('items', []):
+                yield _api_to_comment_dict(item, self.video_id,
+                    parent_id=item['snippet']['parentId'], total_reply_count=0)
+            request = youtube.comments().list_next(request, response)
+
+    def expand_replies(self, comment_id, force=False):
+        file = self.__class__.get_active_comments_file(self.video_id)
+        if not file.exists():
+            raise ValueError(
+                f'No comments cached for {self.video_id}; mirror first.'
+            )
+        existing = json.loads(file.read_text())
+        existing_comments = existing.get('comments', {})
+        target = existing_comments.get(comment_id)
+        if not target:
+            raise ValueError(
+                f'Comment {comment_id} not in cache for {self.video_id}; '
+                'mirror first or pass a known thread id.'
+            )
+        if target.get('parent_id') is not None:
+            raise ValueError(
+                f'Comment {comment_id} is a reply, not a top-level thread.'
+            )
+        if not force and target.get('replies_complete'):
+            return
+
+        replies = list(self.retrieve_thread_replies(comment_id))
+        self._merge_thread_expansion(comment_id, replies)
+
+    def _merge_thread_expansion(self, top_level_id, replies):
+        batch_time = Context.get().batch_time
+        file = self.__class__.get_active_comments_file(self.video_id)
+        existing = json.loads(file.read_text())
+        existing_comments = existing.get('comments', {})
+        merged = dict(existing_comments)
+
+        for item in replies:
+            cid = item['comment_id']
+            prior = existing_comments.get(cid) or {}
+            merged[cid] = {
+                **item,
+                'first_seen': prior.get('first_seen', batch_time.isoformat()),
+                'last_seen': batch_time.isoformat(),
+                'replies_complete': False,
+            }
+
+        merged[top_level_id] = {
+            **merged[top_level_id],
+            'replies_complete': True,
+        }
+
+        new = {**existing, 'fetched_at': batch_time.isoformat(), 'comments': merged}
+        self.archive_comments(existing, new)
+        dump_json(file, new)
+        txt_file = file.parent / 'comments.txt'
+        txt_file.write_text(_render_comments_txt(merged))
+
+    def _mark_comments_disabled(self):
+        batch_time = Context.get().batch_time
+        file = self.__class__.get_active_comments_file(self.video_id)
+        existing = json.loads(file.read_text()) if file.exists() else {}
+        existing.setdefault('comments', {})
+        existing.update({
+            'comments_disabled': True,
+            'fetched_at': batch_time.isoformat(),
+            'fetch_complete': True,
+            'next_page_token': None,
+            'pages_fetched': existing.get('pages_fetched', 0),
+        })
+        dump_json(file, existing)
+        txt_file = file.parent / 'comments.txt'
+        txt_file.write_text(_render_comments_txt(existing.get('comments', {})))
